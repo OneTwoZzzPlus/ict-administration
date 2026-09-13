@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+prometheus-client
+httpx
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp

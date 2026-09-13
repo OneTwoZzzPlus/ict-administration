@@ -1,0 +1,7 @@
+services:
+  app:
+    build: ./app
+    container_name: lab1-app
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
