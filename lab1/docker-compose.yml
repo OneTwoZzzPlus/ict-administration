@@ -1,7 +1,24 @@
+name: lab1
+
 services:
   app:
     build: ./app
-    container_name: lab1-app
+    container_name: app
     ports:
       - "8000:8000"
-    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml
