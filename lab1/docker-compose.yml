@@ -13,6 +13,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
+      - prometheus-data:/prometheus
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
 
   grafana:
@@ -22,3 +23,8 @@ services:
       - "3000:3000"
     volumes:
       - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml
+      - ./grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml
+      - ./dashboards:/var/lib/grafana/dashboards
+
+volumes:
+  prometheus-data:
