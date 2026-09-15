@@ -164,3 +164,76 @@ volumes:
 Теперь можно сохранять настроенные дашборды в `/dashboards` и они будут автоматически подгружены с пометкой `Managed by: file provisioning`.
 
 ![Dashboard made with IaC](graphics/2-dashboard-2.png)
+
+## Часть 3 — Логи (Loki + Promtail → Grafana)
+
+### Loki
+
+Сначала описываем сервис в compose (_копируем самый простой_), не забывая про volume.
+
+```yml
+loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+volumes:
+  ...
+  loki-data:
+```
+
+> [!NOTE]
+> На этом моменте мне надоели логи grafana при дебаге и я повысил log level до warning: `environment: - GF_LOG_LEVEL=warn`.
+
+И находим простейший конфиг Loki.
+
+```yml
+auth_enabled: false
+
+server:
+    http_listen_port: 3100
+
+common:
+    path_prefix: /loki
+    ring:
+        kvstore:
+            store: inmemory
+    storage:
+        filesystem:
+            chunks_directory: /loki/chunks
+            rules_directory: /loki/rules
+
+query_scheduler:
+    scheduler_ring:
+        kvstore:
+            store: inmemory
+
+schema_config:
+    configs:
+        - from: 2026-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+              prefix: index_
+              period: 24h
+```
+
+> [!WARNING]
+> При старте возникла ошибка: `error="starting module query-scheduler-ring: context canceled"`. Судя по логам, разъясненным чатиком, Loki пытался подключаться к какому-то внешнему хранилищу `localhost:8500`. Совместно с чатиком настроим `inmemory` хранилище.
+
+Проверяем, что Loki вообще запустился.
+
+```bash
+ivan$ curl http://localhost:3100/ready
+Ingester not ready: waiting for 15s after being ready
+ivan$ curl http://localhost:3100/ready
+ready
+```
+
+###
