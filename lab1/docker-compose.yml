@@ -6,17 +6,22 @@ services:
     container_name: app
     ports:
       - "8000:8000"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "127.0.0.1:24224"
+        fluentd-async: "true"
 
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     environment:
-      - GF_LOG_LEVEL=warn
+      - GF_LOG_LEVEL=info
     ports:
       - "3000:3000"
     volumes:
-      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml
-      - ./grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml
+      - ./grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
       - ./dashboards:/var/lib/grafana/dashboards
 
   prometheus:
@@ -26,7 +31,7 @@ services:
       - "9090:9090"
     volumes:
       - prometheus-data:/prometheus
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   loki:
     image: grafana/loki:latest
@@ -37,6 +42,19 @@ services:
       - ./loki.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+
+  fluent-bit:
+    image: grafana/fluent-bit-plugin-loki:latest
+    container_name: fluent-bit
+    environment:
+      - LOKI_URL=http://loki:3100/loki/api/v1/push
+    volumes:
+      - ./fluent-bit.yml:/fluent-bit/etc/fluent-bit.yaml:ro
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    command:
+      ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.yaml"]
 
 volumes:
   prometheus-data:

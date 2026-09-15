@@ -3,7 +3,7 @@
 **Цель**: сделать маленький простой сервис и поднять для него полный мониторинг: метрики, логи и трейсы.
 
 > [!NOTE]
-> После беззаботного времени на Windows просим GRUB запускать Ubuntu. Удивляемся, как удобно она была настроена. Синхронизируем vscode, музыку, браузер и конфигурацию Выхода Прямо в Нормальный инет (ВПН). Донастраиваем ещё приколов, приближаясь к полной миграции с окон, и в бой.
+> После беззаботного времени на Windows просим GRUB запускать Ubuntu. Удивляемся, как удобно она была настроена. Синхронизируем vscode, музыку, браузер и конфигурацию Выхода Прямо в Нормальный инет (ВПН). Донастраиваем ещё приколов, приближаясь к полной миграции с окон на линукс, и в бой.
 
 ## Часть 1 — Маленький сервис с кнопками
 
@@ -106,9 +106,6 @@ volumes:
 
 ![Grafana datasource](graphics/2-grafana-2.png)
 
-> [!NOTE]
-> Производим фиксацию результата. Идем спать.
-
 ### Дашборд по RED
 
 Для начала составим PromQL запросы по RED (попутно разбирая команды с чатиком).
@@ -165,32 +162,119 @@ volumes:
 
 ![Dashboard made with IaC](graphics/2-dashboard-2.png)
 
-## Часть 3 — Логи (Loki + Promtail → Grafana)
+## Часть 3 — Логи (Loki + Fluent Bit → Grafana)
 
-### Loki
+> [!NOTE]
+> Я уже пробовал внедрять _Grafana + Prometheus_ в свои проекты, а начиная с третьей части таких технологий я никогда раньше не трогал. Смута началась, когда я увидел, что **Promtail - EOL** (_узнал новую аббревиатуру: конец жизни_). Сразу возникло желание посмотреть на альтернативы.
+>
+> Официальная команда Grafana предлагает миграции на _Grafana Alloy_: инструмент, который сочетает в себе сбор и метрик, и логов... Но в контексте текущей лабораторной это плохой вариант: мы все-таки уже как минимум используем _Prometheus_ для метрик, поэтому стоит продолжить изучать ~~зоопарк~~ все многообразие технологий.
+>
+> А для чисто замены _Promtail_ чатик предложил кроме всего прочего **Fluent Bit**: по заявлениям он приятно встанет на места агента по сбору логов (тем более, что конфигурируется он тоже в любимом yml).
 
-Сначала описываем сервис в compose (_копируем самый простой_), не забывая про volume.
+### Подключение Loki в Grafana
+
+Сразу в `graphana-datasource.yml` добавим Loki как источник.
 
 ```yml
-loki:
+- name: Loki
+  type: loki
+  access: proxy
+  url: http://loki:3100
+```
+
+![Connect Loki to Grafana](./graphics/3-loki-connect.png)
+
+### Loki + Fluent Bit
+
+На первых попытках сделать эту часть я использовал официальную документацию Grafana и LLM, однако у меня никак не получалось адекватно собрать связку, используя агент _Fluent Bit_.
+
+Итерация 1.
+
+> [!WARNING]
+> При первом старте Loki возникла ошибка: `error="starting module query-scheduler-ring: context canceled"`. Судя по логам, Loki пытался подключаться к какому-то внешнему хранилищу `localhost:8500`, настроим в конфиге `inmemory` хранилище.
+
+Итерация 2.
+
+> [!WARNING]
+> Fluent Bit стал сыпать в лог информацией о CPU, волшебой командой из чатика посмотрим на используемый используемый при запуске конфиг: он оказался в нативном формате `.conf`, изменим команду запуска, чтобы использовался наш `.yaml` конфиг.
+
+Итерация 3.
+
+> [!WARNING]
+> Ошибка в логах Loki: агент не может найти парсер докера: `parser 'docker' is not registered`. Добавим описание парсера.
+
+Итерация 4.
+
+> [!WARNING]
+> Данные не парсятся из-за ошибок 400 от Loki, потому что (как утверждали логи) слишком старые, какие бы настройки не менялись за десятки попыток. К тому же на эти данные не вешались метки названия контейнера: я не видел способа различить меж собой логи разных контейнеров.
+
+Тактически отступаем и начинаем ресерч: натыкаемся на [статью](https://dev.to/thakkaryash94/docker-container-logs-using-fluentd-and-grafana-loki-a15?ysclid=mu2tj770xz150987434), в которой было написано, что для этого агента необходимо настроить логирование через _Fluentd_ (а ещё там использовался образ `grafana/fluent-bit-plugin-loki`). Взяв примеры кода из [репозитория](https://github.com/thakkaryash94/docker-grafana-loki-fluent-bit-sample), продолаем упорно заставлять это работать.
+
+Итерация 5.
+
+> [!WARNING]
+> Падение с `failed to initialize logging driver`, решение: поправить адрес драйвера на правильный `127.0.0.1:24224`.
+
+Итерация 6.
+
+> [!WARNING]
+> Падение с `loki: unknown configuration property 'url'`, это скорее из-за разницы версий просто нужно заменить `url` на `uri`, `host` и `port`.
+
+Итерация 7.
+
+> [!WARNING]
+> Падение с `invalid label key`, тут настройка `labels_key` не нужна и не существует. Просто удаляем, ведь без подобной настройки `container_name` сохраняется.
+
+И, наконец, все запустилось без ошибок и даже показало результат.
+
+![Test Loki in Grafana](./graphics/3-loki-test.png)
+
+### Итоговая конфигурация
+
+Сначала описываем сервисы в compose, не забывая про volume.
+Настраиваем необходимые условия из статьи.
+
+```yml
+services:
+  app:
+    ...
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: "127.0.0.1:24224"
+        fluentd-async: "true"
+  ...
+  loki:
     image: grafana/loki:latest
     container_name: loki
     ports:
       - "3100:3100"
     volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
 
+  fluent-bit:
+    image: grafana/fluent-bit-plugin-loki:latest
+    container_name: fluent-bit
+    environment:
+      - LOKI_URL=http://loki:3100/loki/api/v1/push
+    volumes:
+      - ./fluent-bit.yml:/fluent-bit/etc/fluent-bit.yaml:ro
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    command:
+      ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.yaml"]
 volumes:
   ...
   loki-data:
 ```
 
 > [!NOTE]
-> На этом моменте мне надоели логи grafana при дебаге и я повысил log level до warning: `environment: - GF_LOG_LEVEL=warn`.
+> Restart намеренно игнорируется в compose на данном этапе, чтобы при падении не приходилось искать ошибку среди перезапусков. На этом же моменте я добавил `ro` и для конфигов: кажется, так безопаснее.
 
-И находим простейший конфиг Loki.
+Для Loki обычная конфигурация для хранилища `inmemory`.
 
 ```yml
 auth_enabled: false
@@ -201,17 +285,14 @@ server:
 common:
     path_prefix: /loki
     ring:
+        instance_addr: 127.0.0.1
         kvstore:
             store: inmemory
+    replication_factor: 1
     storage:
         filesystem:
             chunks_directory: /loki/chunks
             rules_directory: /loki/rules
-
-query_scheduler:
-    scheduler_ring:
-        kvstore:
-            store: inmemory
 
 schema_config:
     configs:
@@ -222,18 +303,53 @@ schema_config:
           index:
               prefix: index_
               period: 24h
+
+storage_config:
+    filesystem:
+        directory: /loki/chunks
 ```
 
-> [!WARNING]
-> При старте возникла ошибка: `error="starting module query-scheduler-ring: context canceled"`. Судя по логам, разъясненным чатиком, Loki пытался подключаться к какому-то внешнему хранилищу `localhost:8500`. Совместно с чатиком настроим `inmemory` хранилище.
+И, наконец, конфиг в `yml` типа вход - выход для Fluent Bit.
 
-Проверяем, что Loki вообще запустился.
+```yml
+service:
+    flush: 1
+    log_level: info
 
-```bash
-ivan$ curl http://localhost:3100/ready
-Ingester not ready: waiting for 15s after being ready
-ivan$ curl http://localhost:3100/ready
-ready
+pipeline:
+    inputs:
+        - name: forward
+          listen: 0.0.0.0
+          port: 24224
+
+    outputs:
+        - name: loki
+          match: "*"
+          host: loki
+          port: 3100
+          uri: /loki/api/v1/push
+          remove_keys: source
+          labels: agent=fluent-bit
+          line_format: json
 ```
 
-###
+### Чистим логи
+
+Посмотрим на вывод `app`. Безобразие!
+
+```json
+app | {"level": "INFO", "message": "request completed", "trace_id": "2bdbb635-29fa-4828-8b00-5613a28b950c", "method": "GET", "path": "/metrics", "status": 200, "duration_seconds": 0.0012}
+app | INFO: 172.20.0.5:39032 - "GET /metrics HTTP/1.1" 200 OK
+```
+
+Избавляемся от стандартных логов Uvicorn в Dockerfile.
+
+```Dockerfile
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+```
+
+### Поиск ошибок в логах
+
+Выполняем запрос `{agent="fluent-bit"} |= "ERROR"` к Loki и радуемся.
+
+![Filter logs](./graphics/3-loki-filter.png)

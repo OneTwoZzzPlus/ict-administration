@@ -6,17 +6,14 @@ server:
 common:
     path_prefix: /loki
     ring:
+        instance_addr: 127.0.0.1
         kvstore:
             store: inmemory
+    replication_factor: 1
     storage:
         filesystem:
             chunks_directory: /loki/chunks
             rules_directory: /loki/rules
-
-query_scheduler:
-    scheduler_ring:
-        kvstore:
-            store: inmemory
 
 schema_config:
     configs:
@@ -27,3 +24,7 @@ schema_config:
           index:
               prefix: index_
               period: 24h
+
+storage_config:
+    filesystem:
+        directory: /loki/chunks
