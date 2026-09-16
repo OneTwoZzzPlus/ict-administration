@@ -169,7 +169,7 @@ volumes:
 >
 > Официальная команда Grafana предлагает миграции на _Grafana Alloy_: инструмент, который сочетает в себе сбор и метрик, и логов... Но в контексте текущей лабораторной это плохой вариант: мы все-таки уже как минимум используем _Prometheus_ для метрик, поэтому стоит продолжить изучать ~~зоопарк~~ все многообразие технологий.
 >
-> А для чисто замены _Promtail_ чатик предложил кроме всего прочего **Fluent Bit**: по заявлениям он приятно встанет на места агента по сбору логов (тем более, что конфигурируется он тоже в любимом yml).
+> А для чисто замены _Promtail_ чатик предложил кроме всего прочего **Fluent Bit**: по заявлениям он приятно встанет на место агента по сбору логов (тем более, что конфигурируется он тоже в любимом yml).
 
 ### Подключение Loki в Grafana
 
@@ -191,12 +191,12 @@ volumes:
 Итерация 1.
 
 > [!WARNING]
-> При первом старте Loki возникла ошибка: `error="starting module query-scheduler-ring: context canceled"`. Судя по логам, Loki пытался подключаться к какому-то внешнему хранилищу `localhost:8500`, настроим в конфиге `inmemory` хранилище.
+> При первом старте Loki возникла ошибка: `error="starting module query-scheduler-ring: context canceled"`. Судя по логам, Loki пытался подключаться к какому-то внешнему хранилищу `localhost:8500`, настроим в конфиге хранилище.
 
 Итерация 2.
 
 > [!WARNING]
-> Fluent Bit стал сыпать в лог информацией о CPU, волшебой командой из чатика посмотрим на используемый используемый при запуске конфиг: он оказался в нативном формате `.conf`, изменим команду запуска, чтобы использовался наш `.yaml` конфиг.
+> Fluent Bit стал сыпать в лог информацией о CPU, волшебой командой из чатика посмотрим на используемый при запуске конфиг: он оказался в нативном формате `.conf`, изменим команду запуска, чтобы использовался наш `.yaml` конфиг.
 
 Итерация 3.
 
@@ -206,7 +206,7 @@ volumes:
 Итерация 4.
 
 > [!WARNING]
-> Данные не парсятся из-за ошибок 400 от Loki, потому что (как утверждали логи) слишком старые, какие бы настройки не менялись за десятки попыток. К тому же на эти данные не вешались метки названия контейнера: я не видел способа различить меж собой логи разных контейнеров.
+> Данные не парсятся из-за ошибок 400 от Loki, потому что они слишком старые, И эта ситуация не менялась, какие бы настройки я не менял за десятки попыток. К тому же на эти данные не вешались метки названия контейнера: я не видел способа различить меж собой логи разных контейнеров.
 
 Тактически отступаем и начинаем ресерч: натыкаемся на [статью](https://dev.to/thakkaryash94/docker-container-logs-using-fluentd-and-grafana-loki-a15?ysclid=mu2tj770xz150987434), в которой было написано, что для этого агента необходимо настроить логирование через _Fluentd_ (а ещё там использовался образ `grafana/fluent-bit-plugin-loki`). Взяв примеры кода из [репозитория](https://github.com/thakkaryash94/docker-grafana-loki-fluent-bit-sample), продолаем упорно заставлять это работать.
 
@@ -274,7 +274,7 @@ volumes:
 > [!NOTE]
 > Restart намеренно игнорируется в compose на данном этапе, чтобы при падении не приходилось искать ошибку среди перезапусков. На этом же моменте я добавил `ro` и для конфигов: кажется, так безопаснее.
 
-Для Loki обычная конфигурация для хранилища `inmemory`.
+Для Loki обычная конфигурация для использования хранилища.
 
 ```yml
 auth_enabled: false
@@ -337,7 +337,7 @@ pipeline:
 
 Посмотрим на вывод `app`. Безобразие!
 
-```json
+```txt
 app | {"level": "INFO", "message": "request completed", "trace_id": "2bdbb635-29fa-4828-8b00-5613a28b950c", "method": "GET", "path": "/metrics", "status": 200, "duration_seconds": 0.0012}
 app | INFO: 172.20.0.5:39032 - "GET /metrics HTTP/1.1" 200 OK
 ```
@@ -353,3 +353,93 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-l
 Выполняем запрос `{agent="fluent-bit"} |= "ERROR"` к Loki и радуемся.
 
 ![Filter logs](./graphics/3-loki-filter.png)
+
+## Часть 4 — Трейсы (OpenTelemetry → Jaeger)
+
+### Single Jaeger
+
+Немного поправляем app под правильную раздачу трейсов. Затем разбираемся с Jaeger, `all-in-one` версию запустить очень просто из коробки.
+
+```yml
+jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+        - "4317:4317"
+        - "16686:16686"
+```
+
+![Single Jaeger](./graphics/4-jaeger-simple.png)
+
+### Jaeger + OTel Collector
+
+Для коллектора нужен приемник, процессор и экспортер. В конфиге коллектора оставляем все стандарыми.
+
+```yml
+receivers:
+    otlp:
+        protocols:
+            grpc:
+                endpoint: 0.0.0.0:4317
+            http:
+                endpoint: 0.0.0.0:4318
+
+processors:
+    batch:
+
+exporters:
+    otlp_grpc:
+        endpoint: http://jaeger:4317
+        tls:
+            insecure: true
+
+service:
+    pipelines:
+        traces:
+            receivers: [otlp]
+            processors: [batch]
+            exporters: [otlp_grpc]
+```
+
+Описываем все необходимое в compose (_снова_). Помимо прочего при дебаге обнаружим, что в `jaegertracing/all-in-one` версия v1 - EOL. Поменяем.
+
+```yml
+services:
+  app:
+    ...
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector:4317"
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
+    ...
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yaml:ro
+    command: ["--config=/etc/otelcol/config.yaml"]
+```
+
+> [!WARNING]
+> При запусках коллектора то коллектор не мог отправить джагеру, то приложение коллектору. Решилось это подбором: где-то нужен `http://`, где-то нужен дополнительный флаг, где-то ваще ничего не нужно.
+
+### Работа в Jaeger UI
+
+Открываем Jaeger, выбираем сервис в поиске. Видим трейсы переодически запрашиваемых метрик, значит, как минимум работает.
+
+![Jaeger app traces](./graphics/4-jaeger-otc.png)
+
+Создаем запрос с задержкой - видим slow_dependency на всю длину запроса (остальные действия пренебрежимо малы и незаметны).
+
+![Jaeger /delay span](./graphics/4-jaeger-delay.png)
+
+Создаем ошибку - видим красненький спан.
+
+![Jaeger /error span](./graphics/4-jaeger-error.png)
+
+Находим случайную ошибку в Grafana и по поиску находим её в Jaeger.
+
+![Copy trace_id](./graphics/4-trace-grafana.png)
+![Search trace_id](./graphics/4-trace-jaeger.png)
+
+## Часть 5 — Алерты в Alertmanager

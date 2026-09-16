@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 
@@ -8,11 +9,41 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Status, StatusCode
 from prometheus_client import Counter, Histogram, generate_latest
 from starlette.responses import Response
 
 app = FastAPI(title="Observability Lab")
+
+
+# ---------- OpenTelemetry tracer provider ----------
+# Без явного TracerProvider + экспортера спаны создаются,
+# но остаются в процессе и никуда не отправляются (no-op).
+
+OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
+    "OTEL_EXPORTER_OTLP_ENDPOINT", "jaeger:4317"
+).strip().strip('"').strip("'")
+
+# Для OTLP/gRPC Python exporter используем именно host:port.
+if "://" in OTEL_EXPORTER_OTLP_ENDPOINT:
+    OTEL_EXPORTER_OTLP_ENDPOINT = OTEL_EXPORTER_OTLP_ENDPOINT.split("://", 1)[1]
+if "/" in OTEL_EXPORTER_OTLP_ENDPOINT:
+    OTEL_EXPORTER_OTLP_ENDPOINT = OTEL_EXPORTER_OTLP_ENDPOINT.split("/", 1)[0]
+
+OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "observability-lab")
+
+resource = Resource.create({"service.name": OTEL_SERVICE_NAME})
+
+provider = TracerProvider(resource=resource)
+provider.add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint=OTEL_EXPORTER_OTLP_ENDPOINT, insecure=True))
+)
+trace.set_tracer_provider(provider)
 
 
 # ---------- Prometheus metrics ----------
@@ -53,11 +84,11 @@ def log_json(level: str, message: str, trace_id: str | None = None, **extra):
     print(json.dumps(record), flush=True)
 
 
-# ---------- OpenTelemetry ----------
+# ---------- OpenTelemetry instrumentation ----------
 
 FastAPIInstrumentor.instrument_app(app)
 
-tracer = trace.get_tracer(__name__)
+tracer = trace.get_tracer(__name__)  # теперь использует наш provider выше
 
 
 def current_trace_id() -> str:
@@ -130,6 +161,10 @@ async def index():
 async def create_error():
     trace_id = current_trace_id()
 
+    span = trace.get_current_span()
+    span.set_status(Status(StatusCode.ERROR, "intentional error"))
+    span.set_attribute("error", True)
+
     log_json(
         "ERROR",
         "intentional error",
@@ -158,7 +193,9 @@ async def create_delay(seconds: float = 2):
         seconds=seconds,
     )
 
-    await asyncio.sleep(seconds)
+    with tracer.start_as_current_span("slow-dependency") as span:
+        span.set_attribute("delay.seconds", seconds)
+        await asyncio.sleep(seconds)
 
     return {
         "message": "delayed response",

@@ -4,6 +4,8 @@ services:
   app:
     build: ./app
     container_name: app
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector:4317"
     ports:
       - "8000:8000"
     logging:
@@ -48,13 +50,27 @@ services:
     container_name: fluent-bit
     environment:
       - LOKI_URL=http://loki:3100/loki/api/v1/push
-    volumes:
-      - ./fluent-bit.yml:/fluent-bit/etc/fluent-bit.yaml:ro
     ports:
       - "24224:24224"
       - "24224:24224/udp"
+    volumes:
+      - ./fluent-bit.yml:/fluent-bit/etc/fluent-bit.yaml:ro
     command:
       ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.yaml"]
+
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
+    container_name: jaeger
+    ports:
+      - "4317:4317"
+      - "16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yaml:ro
+    command: ["--config=/etc/otelcol/config.yaml"]
 
 volumes:
   prometheus-data:
