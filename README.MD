@@ -1,5 +1,12 @@
 # Администрирование в инфокоммуникационных системах
 
-[![Tasks](https://img.shields.io/badge/tasks-24292E?style=for-the-badge&logo=github&logoColor=white)](https://github.com/KeladKaal/ict-administration/)
+[Лекции и лабы](https://github.com/KeladKaal/ict-administration/)
+
+- [Лаба 1 — Полный мониторинг маленького сервиса](/lab1)
+- [Лаба 2 — Kafka для двух сервисов: подними и настрой с нуля](/lab2)
+- [Лаба 3 — Репликация базы данных: подними, сломай, восстанови](/lab3)
+- [Лаба 4 — Развернуть ELK и потрогать Эластик руками](/lab4)
+- [Лаба 5 — Внутренний GitLab команды: единый вход, nginx-рубеж и раннеры](/lab5)
+- [Лаба 6 — Автоматизация devops-процесса с n8n + AI](/lab6)
 
 Автор работ: Сакулин Иван Михайлович
