@@ -1,0 +1,38 @@
+groups:
+    - name: lab1-alerts
+      rules:
+          - alert: HighErrorRate
+            expr: |
+                sum(rate(http_errors_total[1m]))
+                /
+                sum(rate(http_requests_total[1m]))
+                > 0.2
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая доля ошибок"
+                description: "Доля HTTP 5xx превышает 20%"
+
+          - alert: HighRequestRate
+            expr: |
+                sum(rate(http_requests_total[1m])) > 10
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая нагрузка"
+                description: "Приложение обрабатывает больше 10 запросов/сек"
+
+          - alert: HighP95Latency
+            expr: |
+                histogram_quantile(
+                  0.95,
+                  sum(rate(http_request_duration_seconds_bucket[1m])) by (le)
+                ) > 1
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая p95 задержка"
+                description: "p95 latency превышает 1 секунду"

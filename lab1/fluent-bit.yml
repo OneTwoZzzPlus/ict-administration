@@ -1,0 +1,19 @@
+service:
+    flush: 1
+    log_level: info
+
+pipeline:
+    inputs:
+        - name: forward
+          listen: 0.0.0.0
+          port: 24224
+
+    outputs:
+        - name: loki
+          match: "*"
+          host: loki
+          port: 3100
+          uri: /loki/api/v1/push
+          remove_keys: source
+          labels: agent=fluent-bit
+          line_format: json

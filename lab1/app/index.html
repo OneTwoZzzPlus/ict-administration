@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Observability Lab</title>
+
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                padding: 20px;
+                font-family: system-ui, sans-serif;
+                background: #f5f5f5;
+            }
+
+            .container {
+                width: min(768px, 100%);
+                margin: 0 auto;
+            }
+
+            h1 {
+                margin-bottom: 24px;
+            }
+
+            .card {
+                background: white;
+                padding: 20px;
+                margin-bottom: 16px;
+                border-radius: 12px;
+            }
+
+            .control {
+                margin: 16px 0;
+            }
+
+            label {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 8px;
+            }
+
+            input[type="range"] {
+                width: 100%;
+            }
+
+            button {
+                width: 100%;
+                padding: 14px;
+                border: 0;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+            }
+
+            .result {
+                margin-top: 16px;
+                padding: 12px;
+                background: #eee;
+                border-radius: 8px;
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+            }
+
+            @media (max-width: 480px) {
+                body {
+                    padding: 12px;
+                }
+
+                .card {
+                    padding: 16px;
+                }
+
+                h1 {
+                    font-size: 24px;
+                }
+            }
+
+            .actions {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 16px;
+            }
+
+            @media (max-width: 768px) {
+                .actions {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="container">
+            <h1>Observability Lab</h1>
+            <div class="actions">
+                <div class="card">
+                    <h2>Ошибка</h2>
+
+                    <p>Создаёт HTTP 500 и увеличивает счётчик ошибок.</p>
+
+                    <button onclick="createError()">Создать ошибку</button>
+                </div>
+
+                <div class="card">
+                    <h2>Задержка</h2>
+
+                    <div class="control">
+                        <label>
+                            <span>Время задержки</span>
+                            <strong id="delayValue">2 сек</strong>
+                        </label>
+
+                        <input
+                            id="delay"
+                            type="range"
+                            min="1"
+                            max="3"
+                            step="0.1"
+                            value="2"
+                            oninput="updateDelay()"
+                        />
+                    </div>
+
+                    <button onclick="createDelay()">Создать задержку</button>
+                </div>
+
+                <div class="card">
+                    <h2>Нагрузка</h2>
+
+                    <div class="control">
+                        <label>
+                            <span>Количество запросов</span>
+                            <strong id="loadValue">200</strong>
+                        </label>
+
+                        <input
+                            id="load"
+                            type="range"
+                            min="100"
+                            max="300"
+                            step="1"
+                            value="200"
+                            oninput="updateLoad()"
+                        />
+                    </div>
+
+                    <button onclick="createLoad()">Нагрузка</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Результат</h2>
+                <div id="result" class="result">
+                    Здесь появится ответ сервиса.
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const result = document.getElementById("result");
+
+            function updateDelay() {
+                const value = document.getElementById("delay").value;
+                document.getElementById("delayValue").textContent =
+                    `${value} сек`;
+            }
+
+            function updateLoad() {
+                const value = document.getElementById("load").value;
+                document.getElementById("loadValue").textContent = value;
+            }
+
+            async function callEndpoint(url) {
+                result.textContent = "Выполняется запрос...";
+
+                try {
+                    const response = await fetch(url);
+                    const text = await response.text();
+
+                    result.textContent = `HTTP ${response.status}\n\n${text}`;
+                } catch (error) {
+                    result.textContent = error.toString();
+                }
+            }
+
+            function createError() {
+                callEndpoint("/error");
+            }
+
+            function createDelay() {
+                const seconds = document.getElementById("delay").value;
+                callEndpoint(`/delay?seconds=${seconds}`);
+            }
+
+            function createLoad() {
+                const requests = document.getElementById("load").value;
+                callEndpoint(`/load?requests=${requests}`);
+            }
+        </script>
+    </body>
+</html>
