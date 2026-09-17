@@ -29,6 +29,8 @@ services:
 > Репозиторий был создан на общем томе. Добавил репозиторий в доверенные, чтобы не ругался.
 > Изменения были написаны не в той ветке. Минут 15 пожанглировав в git удалось создать нормально первый коммит и от него перевести работу в ветку `lab1`.
 
+![mem git branching](./graphics/mem-git-branching.png)
+
 ## Часть 2 — Метрики (Prometheus + Grafana)
 
 ### Prometheus
@@ -162,6 +164,8 @@ volumes:
 
 ![Dashboard made with IaC](graphics/2-dashboard-2.png)
 
+![mem stonks tf](./graphics/mem-stonks-tf.png)
+
 ## Часть 3 — Логи (Loki + Fluent Bit → Grafana)
 
 > [!NOTE]
@@ -208,6 +212,8 @@ volumes:
 > [!WARNING]
 > Данные не парсятся из-за ошибок 400 от Loki, потому что они слишком старые, И эта ситуация не менялась, какие бы настройки я не менял за десятки попыток. К тому же на эти данные не вешались метки названия контейнера: я не видел способа различить меж собой логи разных контейнеров.
 
+![mem dog fine](./graphics/mem-fine-dog.png)
+
 Тактически отступаем и начинаем ресерч: натыкаемся на [статью](https://dev.to/thakkaryash94/docker-container-logs-using-fluentd-and-grafana-loki-a15?ysclid=mu2tj770xz150987434), в которой было написано, что для этого агента необходимо настроить логирование через _Fluentd_ (а ещё там использовался образ `grafana/fluent-bit-plugin-loki`). Взяв примеры кода из [репозитория](https://github.com/thakkaryash94/docker-grafana-loki-fluent-bit-sample), продолжаем упорно заставлять это работать.
 
 Итерация 5.
@@ -224,6 +230,8 @@ volumes:
 
 > [!WARNING]
 > Падение с `invalid label key`, тут настройка `labels_key` не нужна и не существует. Просто удаляем, ведь без подобной настройки `container_name` сохраняется.
+
+![mem cat flashbacks](./graphics/mem-cat-flashbacks.png)
 
 И, наконец, все запустилось без ошибок и даже показало результат.
 
@@ -347,6 +355,8 @@ app | INFO: 172.20.0.5:39032 - "GET /metrics HTTP/1.1" 200 OK
 ```Dockerfile
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
 ```
+
+![mem vacuum](./graphics/mem-vacuum.png)
 
 ### Поиск ошибок в логах
 
@@ -616,6 +626,8 @@ receivers:
 Инициируем три разных алерта и смотрим логи. Работает!
 
 ![Webhook](./graphics/5-webhook.png)
+
+![mem cat alarm](./graphics/mem-cat-alarm.png)
 
 **Чем грозят эти алерты?**
 
