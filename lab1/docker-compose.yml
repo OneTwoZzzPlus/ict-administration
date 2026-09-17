@@ -83,6 +83,10 @@ services:
       - ./otel-collector.yml:/etc/otelcol/config.yaml:ro
     command: ["--config=/etc/otelcol/config.yaml"]
 
+  webhook:
+    build: ./webhook
+    container_name: webhook
+
 volumes:
   prometheus-data:
   loki-data:
