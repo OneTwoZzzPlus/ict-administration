@@ -7,9 +7,9 @@
 
 ## Часть 1 — Маленький сервис с кнопками
 
-Создаем директорию под лабу `/lab1`, внутри под приложение `/app` — вынесем туда vibecode. Просим чатик поработать python fastapi джуном на полставочки. Получаем на выходе: `app.py`, `index.html`, `requirements.txt`, `Dockerfile`.
+Создаем директорию под лабу `/lab1`, внутри под приложение `/app` — вынесем туда vibecode. Просим чатик поработать python fastapi джуном на полставочки. Получаем на выходе: [`app.py`](./app/app.py), [`index.html`](./app/index.html), [`requirements.txt`](./app/requirements.txt), [`Dockerfile`](./app/Dockerfile).
 
-Команды докера давно забыты, поэтому сразу описываем, что хотим и `docker compose up --build`.
+Команды докера давно забыты, поэтому сразу описываем в [`docker-compose.yml`](./docker-compose.yml), что хотим и `docker compose up --build`.
 
 ```yml
 services:
@@ -33,7 +33,7 @@ services:
 
 ### Prometheus
 
-Далее описываем настройки Prometheus: собирать метрики каждые 5 секунд, для сбора использовать группу (назовем её `app`) с единственной целью на адресе контейнера `app:8000`.
+Далее описываем настройки Prometheus в [`prometheus.yml`](./prometheus.yml): собирать метрики каждые 5 секунд, для сбора использовать группу (назовем её `app`) с единственной целью на адресе контейнера `app:8000`.
 
 ```yml
 global:
@@ -45,7 +45,7 @@ scrape_configs:
           - targets: ["app:8000"]
 ```
 
-Описываем сервис с конфигурацией выше (прокинем для проверки порт 9090 наружу).
+Описываем сервис с конфигурацией выше (прокинем для проверки порт 9090 наружу) в [`docker-compose.yml`](./docker-compose.yml).
 
 ```yml
 prometheus:
@@ -79,7 +79,7 @@ grafana:
 > [!NOTE]
 > Я, конечно, подключил, но мне очень неприятно стало, что это произошло в GUI! Поэтому...
 
-Далее создаем конфиг `grafana-datasource.yml`, который буквально нужен для указания источников данных.
+Далее создаем конфиг [`grafana-datasource.yml`](./grafana-datasource.yml), который буквально нужен для указания источников данных.
 
 ```yml
 apiVersion: 1
@@ -92,7 +92,7 @@ datasources:
       isDefault: true
 ```
 
-Монтируем к сервису в compose.
+Монтируем к сервису в [`docker-compose.yml`](./docker-compose.yml).
 
 ```yml
 volumes:
@@ -130,7 +130,7 @@ volumes:
 
 Далее экспортируем дашборд и описываем конфигурацию для его автоподгрузки.
 
-Создаем конфиг `grafana-dashboards.yml`, который нужен для указания источников дашбордов (_где-то мы это уже видели_).
+Создаем конфиг [`grafana-dashboard.yml`](./grafana-dashboard.yml), который нужен для указания источников дашбордов (_где-то мы это уже видели_).
 
 ```yml
 apiVersion: 1
@@ -147,7 +147,7 @@ providers:
           path: /var/lib/grafana/dashboards
 ```
 
-Монтируем к сервису в compose (_и это тоже видели_).
+Монтируем к сервису в [`docker-compose.yml`](./docker-compose.yml) (_и это тоже видели_).
 
 ```yml
 volumes:
@@ -156,9 +156,9 @@ volumes:
 ```
 
 > [!NOTE]
-> На этом моменте были потеряны данные сбора метрика, произнесено "какая неудача!" и добавлен volume для prometheus.
+> На этом моменте были потеряны данные сбора метрик, произнесено "какая неудача!" и добавлен volume для prometheus.
 
-Теперь можно сохранять настроенные дашборды в `/dashboards` и они будут автоматически подгружены с пометкой `Managed by: file provisioning`.
+Теперь можно сохранять настроенные дашборды в [`/dashboards`](./dashboards/) и они будут автоматически подгружены с пометкой `Managed by: file provisioning`.
 
 ![Dashboard made with IaC](graphics/2-dashboard-2.png)
 
@@ -173,7 +173,7 @@ volumes:
 
 ### Подключение Loki в Grafana
 
-Сразу в `graphana-datasource.yml` добавим Loki как источник.
+Сразу в [`graphana-datasource.yml`](./grafana-datasource.yml) добавим Loki как источник.
 
 ```yml
 - name: Loki
@@ -196,7 +196,7 @@ volumes:
 Итерация 2.
 
 > [!WARNING]
-> Fluent Bit стал сыпать в лог информацией о CPU, волшебой командой из чатика посмотрим на используемый при запуске конфиг: он оказался в нативном формате `.conf`, изменим команду запуска, чтобы использовался наш `.yaml` конфиг.
+> Fluent Bit стал сыпать в лог информацией о CPU, волшебной командой из чатика посмотрим на используемый при запуске конфиг: он оказался в нативном формате `.conf`, изменим команду запуска, чтобы использовался наш `.yaml` конфиг.
 
 Итерация 3.
 
@@ -208,7 +208,7 @@ volumes:
 > [!WARNING]
 > Данные не парсятся из-за ошибок 400 от Loki, потому что они слишком старые, И эта ситуация не менялась, какие бы настройки я не менял за десятки попыток. К тому же на эти данные не вешались метки названия контейнера: я не видел способа различить меж собой логи разных контейнеров.
 
-Тактически отступаем и начинаем ресерч: натыкаемся на [статью](https://dev.to/thakkaryash94/docker-container-logs-using-fluentd-and-grafana-loki-a15?ysclid=mu2tj770xz150987434), в которой было написано, что для этого агента необходимо настроить логирование через _Fluentd_ (а ещё там использовался образ `grafana/fluent-bit-plugin-loki`). Взяв примеры кода из [репозитория](https://github.com/thakkaryash94/docker-grafana-loki-fluent-bit-sample), продолаем упорно заставлять это работать.
+Тактически отступаем и начинаем ресерч: натыкаемся на [статью](https://dev.to/thakkaryash94/docker-container-logs-using-fluentd-and-grafana-loki-a15?ysclid=mu2tj770xz150987434), в которой было написано, что для этого агента необходимо настроить логирование через _Fluentd_ (а ещё там использовался образ `grafana/fluent-bit-plugin-loki`). Взяв примеры кода из [репозитория](https://github.com/thakkaryash94/docker-grafana-loki-fluent-bit-sample), продолжаем упорно заставлять это работать.
 
 Итерация 5.
 
@@ -231,7 +231,7 @@ volumes:
 
 ### Итоговая конфигурация
 
-Сначала описываем сервисы в compose, не забывая про volume.
+Сначала описываем сервисы в [`docker-compose.yml`](./docker-compose.yml), не забывая про volume.
 Настраиваем необходимые условия из статьи.
 
 ```yml
@@ -274,7 +274,7 @@ volumes:
 > [!NOTE]
 > Restart намеренно игнорируется в compose на данном этапе, чтобы при падении не приходилось искать ошибку среди перезапусков. На этом же моменте я добавил `ro` и для конфигов: кажется, так безопаснее.
 
-Для Loki обычная конфигурация для использования хранилища.
+Для Loki обычная конфигурация [`loki.yml`](./loki.yml) для использования хранилища.
 
 ```yml
 auth_enabled: false
@@ -309,7 +309,7 @@ storage_config:
         directory: /loki/chunks
 ```
 
-И, наконец, конфиг в `yml` типа вход - выход для Fluent Bit.
+И, наконец, конфиг [`fluent-bit.yml`](./fluent-bit.yml) типа вход - выход для Fluent Bit.
 
 ```yml
 service:
@@ -342,7 +342,7 @@ app | {"level": "INFO", "message": "request completed", "trace_id": "2bdbb635-29
 app | INFO: 172.20.0.5:39032 - "GET /metrics HTTP/1.1" 200 OK
 ```
 
-Избавляемся от стандартных логов Uvicorn в Dockerfile.
+Избавляемся от стандартных логов Uvicorn в [`Dockerfile`](./app/Dockerfile).
 
 ```Dockerfile
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
@@ -358,7 +358,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-l
 
 ### Single Jaeger
 
-Немного поправляем app под правильную раздачу трейсов. Затем разбираемся с Jaeger, `all-in-one` версию запустить очень просто из коробки.
+Немного поправляем app под правильную раздачу трейсов. Затем разбираемся с Jaeger, `all-in-one` версию запустить очень просто из коробки в [`docker-compose.yml`](./docker-compose.yml).
 
 ```yml
 jaeger:
@@ -373,7 +373,7 @@ jaeger:
 
 ### Jaeger + OTel Collector
 
-Для коллектора нужен приемник, процессор и экспортер. В конфиге коллектора оставляем все стандарыми.
+Для коллектора нужен приемник, процессор и экспортер. В конфиге коллектора [`otel-collector.yml`](./otel-collector.yml) оставляем всех стандартными.
 
 ```yml
 receivers:
@@ -401,7 +401,7 @@ service:
             exporters: [otlp_grpc]
 ```
 
-Описываем все необходимое в compose (_снова_). Помимо прочего при дебаге обнаружим, что в `jaegertracing/all-in-one` версия v1 - EOL. Поменяем.
+Описываем все необходимое в [`docker-compose.yml`](./docker-compose.yml) (_снова_). Помимо прочего при дебаге обнаружим, что в `jaegertracing/all-in-one` версия v1 - EOL. Поменяем.
 
 ```yml
 services:
@@ -425,7 +425,7 @@ services:
 
 ### Работа в Jaeger UI
 
-Открываем Jaeger, выбираем сервис в поиске. Видим трейсы переодически запрашиваемых метрик, значит, как минимум работает.
+Открываем Jaeger, выбираем сервис в поиске. Видим трейсы периодически запрашиваемых метрик, значит, как минимум работает.
 
 ![Jaeger app traces](./graphics/4-jaeger-otc.png)
 
@@ -479,9 +479,9 @@ histogram_quantile(
 ) > 1
 ```
 
-Сработает, при превышении p95 задержки на 1 секунду в течение 10 секунд.
+Сработает при превышении p95 задержки на 1 секунду в течение 10 секунд.
 
-Опишем правила в `alert-rules.yml`.
+Опишем правила в [`alert-rules.yml`](./alert-rules.yml).
 
 ```yml
 groups:
@@ -526,7 +526,7 @@ groups:
 
 ### Подключение Alertmanager
 
-Для начала опишем в compose сервис Alertmanager и примонтируем файл конфигурации правил алертов в Prometheus.
+Для начала опишем в [`docker-compose.yml`](./docker-compose.yml) сервис Alertmanager и примонтируем файл конфигурации правил алертов в Prometheus.
 
 ```yml
 prometheus:
@@ -546,7 +546,7 @@ alertmanager:
         - "--config.file=/etc/alermanager/alertmanager.yml"
 ```
 
-Подключим праивла алертов и Alertmanager в конфигурации Prometheus.
+Подключим правила алертов и Alertmanager в конфигурации [`prometheus.yml`](./prometheus.yml).
 
 ```yml
 alerting:
@@ -559,7 +559,7 @@ rule_files:
     - /etc/prometheus/alert-rules.yml
 ```
 
-Для тестов напишем `alertmanager.yml`: никуда ничего не отправляем, просто выводим.
+Для тестов напишем [`alertmanager.yml`](./alertmanager.yml): никуда ничего не отправляем, просто выводим.
 
 ```yml
 global:
@@ -575,7 +575,7 @@ receivers:
 > [!WARNING]
 > Пока я писал лабу у меня стояло неправильное время в системе, я поменял на правильное. Метрики перестали сохраняться, потому что стали считаться устаревшими. Я просто очистил volumes через `docker compose down -v`.
 
-Попробуем проверить эту конфигурацию, спамим по кнопке, работает - алерт сначал стал `pending`, а затем `firing` и пришел в Alertmanager.
+Попробуем проверить эту конфигурацию, спамим по кнопке, работает - алерт сначала стал `pending`, а затем `firing` и пришел в Alertmanager.
 
 ![Prometheus alert default](./graphics/5-prometheus-default.png)
 
@@ -585,7 +585,7 @@ receivers:
 
 Теперь займемся отправкой уведомлений в webhook. Он был выбран, чтобы не заморачиваться с хранением секретов. Сгенерируем в `/webhook` примитивные `webhook.py`, `Dockerfile`. Вывод алертов будем выводить в консоль.
 
-Объявим в compose сборку и запуск webhook сервиса.
+Объявим в [`docker-compose.yml`](./docker-compose.yml) сборку и запуск webhook сервиса.
 
 ```yml
 webhook:
@@ -593,7 +593,7 @@ webhook:
     container_name: webhook
 ```
 
-Добавим получателей в `alertmanager.yml`.
+Добавим получателей в [`alertmanager.yml`](./alertmanager.yml).
 
 ```yml
 global:
@@ -621,6 +621,21 @@ receivers:
 
 - `HighErrorRate` — грозит тем, что пользователи массово получают ошибки: потеря клиентов, пробитый SLO, а на фоне ошибок ещё и маскируются реальные проблемы (упавшие запросы быстрые, метрики latency p95 врут).
 
-- `HighRequestRate` — грозит тем, что сервис упрётся в потолок по CPU/памяти/соединениям, начнутся очереди и таймауты, всё может закончится падением под нагрузкой (напрмиер, если DDoS или retry-storm).
+- `HighRequestRate` — грозит тем, что сервис упрётся в потолок по CPU/памяти/соединениям, начнутся очереди и таймауты, всё может закончится падением под нагрузкой (например, если DDoS или retry-storm).
 
 - `HighP95Latency` — грозит тем, что много запросов будут очень медленными: у клиентов с сильным таймаутом они начнут отваливаться, SLO по latency будет пробит при внешне хороших метриках ошибок.
+
+## Вывод
+
+За время работы я познакомился с концепциями **трейсов**, **алертов** и сбора **логов**, узнал чуть больше о **метриках**. Убедился в наглядности дашбордов по **RED**, узнал о **USE**. Большая часть инструментов в работе оказались для меня полностью новыми: **Loki** и **Fluent Bit**, **Jaeger** и **OTel collector**, **Alertmanager**. При этом в **Grafana** и **Prometheus** нового оказалось не меньше. Было очень интересно заняться их конфигурацией и разобраться в принципе работы.
+
+[![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.linux.org/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)](https://grafana.com/)
+[![Loki](https://img.shields.io/badge/Loki-F46800?style=for-the-badge&logo=grafana&logoColor=white)](https://grafana.com/oss/loki/)
+[![Fluent Bit](https://img.shields.io/badge/Fluent%20Bit-49BDA5?style=for-the-badge&logo=fluentbit&logoColor=white)](https://fluentbit.io/)
+[![Jaeger](https://img.shields.io/badge/Jaeger-60D0E4?style=for-the-badge&logo=jaeger&logoColor=white)](https://www.jaegertracing.io/)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-000000?style=for-the-badge&logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+[![Alertmanager](https://img.shields.io/badge/Alertmanager-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/docs/alerting/latest/alertmanager/)
