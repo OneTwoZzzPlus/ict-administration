@@ -443,3 +443,144 @@ services:
 ![Search trace_id](./graphics/4-trace-jaeger.png)
 
 ## Часть 5 — Алерты в Alertmanager
+
+### Составление правил алертов
+
+Опишем правила алертов на promQL.
+
+- Высокая доля ошибок (`HighErrorRate`)
+
+```txt
+sum(rate(http_errors_total[1m]))
+/
+sum(rate(http_requests_total[1m]))
+> 0.2
+```
+
+Сработает при доле ошибок более 20% в течение 10 секунд.
+
+> [!NOTE]
+> Тут я задался вопросом: почему я беру все ошибки `http_errors_total`, а не только 5XX. Но пересмотрев вайбкод, увидел, что эта переменная увеличивается только при 5XX.
+
+- Всплеск запросов (`HighRequestRate`)
+
+```txt
+sum(rate(http_requests_total[1m])) > 200
+```
+
+Сработает при скорости более 200 запросов в секунду в течение 10 секунд.
+
+- Высокая задержка p95 (`HighP95Latency`)
+
+```txt
+histogram_quantile(
+    0.95,
+    sum(rate(http_request_duration_seconds_bucket[1m])) by (le)
+) > 1
+```
+
+Сработает, при превышении p95 задержки на 1 секунду в течение 10 секунд.
+
+Опишем правила в `alert-rules.yml`.
+
+```yml
+groups:
+    - name: lab1-alerts
+      rules:
+          - alert: HighErrorRate
+            expr: |
+                sum(rate(http_errors_total[1m]))
+                /
+                sum(rate(http_requests_total[1m]))
+                > 0.2
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая доля ошибок"
+                description: "Доля HTTP 5xx превышает 20%"
+
+          - alert: HighRequestRate
+            expr: |
+                sum(rate(http_requests_total[1m])) > 10
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая нагрузка"
+                description: "Приложение обрабатывает больше 10 запросов/сек"
+
+          - alert: HighP95Latency
+            expr: |
+                histogram_quantile(
+                  0.95,
+                  sum(rate(http_request_duration_seconds_bucket[1m])) by (le)
+                ) > 1
+            for: 10s
+            labels:
+                severity: warning
+            annotations:
+                summary: "Высокая p95 задержка"
+                description: "p95 latency превышает 1 секунду"
+```
+
+### Подключение Alertmanager
+
+Для начала опишем в compose сервис Alertmanager и примонтируем файл конфигурации правил алертов в Prometheus.
+
+```yml
+prometheus:
+    ...
+    volumes:
+        ...
+        - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+        - "9093:9093"
+    volumes:
+        - ./alertmanager.yml:/etc/alermanager/alertmanager.yml:ro
+    command:
+        - "--config.file=/etc/alermanager/alertmanager.yml"
+```
+
+Подключим праивла алертов и Alertmanager в конфигурации Prometheus.
+
+```yml
+alerting:
+    alertmanagers:
+        - static_configs:
+              - targets:
+                    - alertmanager:9093
+
+rule_files:
+    - /etc/prometheus/alert-rules.yml
+```
+
+Для тестов напишем `alertmanager.yml`: никуда ничего не отправляем, просто выводим.
+
+```yml
+global:
+    resolve_timeout: 5m
+
+route:
+    receiver: default
+
+receivers:
+    - name: default
+```
+
+> [!WARNING]
+> Пока я писал лабу у меня стояло неправильное время в системе, я поменял на правильное. Метрики перестали сохраняться, потому что стали считаться устаревшими. Я просто очистил volumes через `docker compose down -v`.
+
+Попробуем проверить эту конфигурацию (10 секунд спамим по кнопке), работает - алерт сначал стал `pending`, а затем `firing` и пришел в Alertmanager.
+
+![Prometheus alert default](./graphics/5-prometheus-default.png)
+
+![Alertmanager default](./graphics/5-alertmanager-default.png)
+
+### Отправка уведомлений
+
+Теперь займемся отправкой уведомлений.
