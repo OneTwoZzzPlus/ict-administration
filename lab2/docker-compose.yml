@@ -1,0 +1,25 @@
+name: lab2
+
+services:
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+      KAFKA_TOPIC: "orders"
+      INSTANCE_NAME: "user-service-1"
+    ports:
+      - "8000:8000"
+
+  picker-service:
+    build: ./picker-service
+    container_name: picker-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-1"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8001:8000"
