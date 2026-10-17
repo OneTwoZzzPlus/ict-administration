@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "orders")
 INSTANCE = os.getenv("INSTANCE_NAME", "user-service-1")
+METADATA_MAX_AGE_MS = int(os.getenv("METADATA_MAX_AGE_MS", "5000"))  # как быстро замечаем смену партиций
 
 ITEMS = ["яблоки", "молоко", "хлеб", "сыр", "кофе", "чай", "печенье", "вода"]
 producer: AIOKafkaProducer | None = None
@@ -24,7 +25,8 @@ async def connect():
     # Подключаемся к Kafka в фоне, чтобы HTTP-сервер стартовал сразу
     global producer
     while True:
-        p = AIOKafkaProducer(bootstrap_servers=BOOTSTRAP, client_id=INSTANCE)
+        p = AIOKafkaProducer(bootstrap_servers=BOOTSTRAP, client_id=INSTANCE,
+                         metadata_max_age_ms=METADATA_MAX_AGE_MS)
         try:
             print(f"Подключаюсь к Kafka {BOOTSTRAP}...", flush=True)
             await p.start()
@@ -67,6 +69,16 @@ async def create_order():
     return {"order": order, "topic": meta.topic, "partition": meta.partition, "offset": meta.offset}
 
 
+@app.get("/api/partitions")
+async def partitions():
+    if producer is None:
+        return {"partitions": []}
+    try:
+        return {"partitions": sorted(await producer.partitions_for(TOPIC))}
+    except Exception:  # noqa: BLE001
+        return {"partitions": []}
+
+
 @app.get("/favicon.svg", include_in_schema=False)
 async def favicon():
     return FileResponse(Path(__file__).with_name("favicon.svg"), media_type="image/svg+xml")
@@ -94,12 +106,18 @@ PAGE = """<!doctype html>
 </style>
 <body>
 <h2><img alt="" src="/favicon.svg" style="width: 1.5rem;"> user-service (__INSTANCE__)</h2>
-<p>топик "__TOPIC__"</p>
+<p>топик "__TOPIC__" | партиции: <b id="parts">—</b></p>
 <button onclick="create()">Создать заказ</button>
 <table>
 <thead><tr><th>order_id</th><th>товары</th><th>партиция</th><th>offset</th></tr></thead>
 <tbody id="log"></tbody></table>
 <script>
+async function refreshParts() {
+  const r = await (await fetch('/api/partitions')).json();
+  document.getElementById('parts').textContent = r.partitions.join(', ') || 'нет';
+}
+setInterval(refreshParts, 2000); refreshParts();
+
 async function create() {
   const resp = await fetch('/orders', {method: 'POST'});
   if (!resp.ok) { alert('Ошибка: ' + (await resp.json()).detail); return; }
