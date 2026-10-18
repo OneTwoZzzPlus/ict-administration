@@ -280,6 +280,70 @@ volumes:
 
 ## Часть 3 — Бизнес-ситуации (решение через конфигурацию)
 
+> [!NOTE]
+> Команды управления:
+>
+> - Запускаемся просто `docker compose up -d`
+> - Сбрасываем стенд `docker compose down -v`
+> - Меняем конфиг на ходу `docker compose up kafka-admin`
+
 ### 1. Готовимся к распродаже, потом сворачиваемся
 
 Для управления топиками определим их количество в [`kafka-topics`](./kafka-topics.yml), N партиций дают использовать топик до N потребителям _параллельно_.
+
+#### Запускаемся с одной партицией
+
+```yml
+topics:
+    orders:
+        partitions: 1
+        config:
+```
+
+![kafka-admin with 1 partition](./graphics/3-1-part0-logs.png)
+
+Отправляем 3 заказа (в партицию 0)
+
+![user-service with 1 partition](./graphics/3-1-part0-user.png)
+
+Принимаем 3 заказа из партиции 0
+
+![picker-service with 1 partition](./graphics/3-1-part0-picker.png)
+
+#### Запускаемся с двумя партициями
+
+```yml
+topics:
+    orders:
+        partitions: 2
+        config:
+```
+
+![kafka-admin with 2 partitions](./graphics/3-1-part1-logs.png)
+
+Отправляем 4 заказа (в партиции 0, 1)
+
+![user-service with 2 partitions](./graphics/3-1-part1-user.png)
+
+Принимаем 4 заказа из партиций 0 и 1
+
+![picker-service with 2 partitions](./graphics/3-1-part1-picker.png)
+
+#### Пробуем уменьшить до одной партиции
+
+```yml
+topics:
+    orders:
+        partitions: 1
+        config:
+```
+
+![kafka-admin reduce partitions number](./graphics/3-1-reduce-logs.png)
+
+**Падаем с ошибкой!** Как и ожидалось kafka не может уменьшить количество партиций в существующем топике. Почему?
+
+- В партиции лежат сообщения, а Kafka данные между партициями переносить не умеет.
+- Перенос сломал бы гарантию порядка: порядок сообщений Kafka гарантируется только внутри одной партиции.
+- Сломались бы сохранённые offset'ы групп: непонятно, куда им указывать после слияния.
+
+### Добавляем второй сборщик
