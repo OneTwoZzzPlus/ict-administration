@@ -656,3 +656,23 @@ volumes:
 ## Часть 5 — Бизнес-ситуации (решение через Kafka UI)
 
 ### 4. Разбор жалобы на конкретный заказ
+
+Возьмем случайный заказ "d92b67eb" из user-service.
+
+![order in user-service](./graphics/5-1-user.png)
+
+Найдем заказ в Kafka UI.
+
+![order in kafka-ui](./graphics/5-1-ui-order.png)
+
+Заказ был найден в Kafka UI: 1 партиция 33 offset, что совпадает с информацией из user-service.
+
+![order in kafka-ui](./graphics/5-1-ui-consumers.png)
+
+В партиции 1 явно видно, что заказ был принят на обработку: `consumer lag == 0`, `current offset (35) == end offset (35) > order offset (33)`.
+
+![order in picker-service](./graphics/5-1-picker.png)
+
+В picker-service убеждаемся, что заказ обработан.
+
+### 5. Пересчёт истории для аналитики
