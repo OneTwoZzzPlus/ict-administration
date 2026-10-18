@@ -1,0 +1,4 @@
+topics:
+    orders:
+        partitions: 1
+        config:

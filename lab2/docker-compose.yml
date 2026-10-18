@@ -10,6 +10,9 @@ services:
       INSTANCE_NAME: "user-service-1"
     ports:
       - "8000:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
 
   picker-service:
     build: ./picker-service
@@ -23,9 +26,24 @@ services:
       AUTO_OFFSET_RESET: "earliest"
     ports:
       - "8001:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  kafka-admin:
+    build: ./kafka-admin
+    container_name: kafka-admin
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ./kafka-topics.yml:/config/topics.yaml:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
 
   kafka:
-    image: apache/kafka:latest
+    image: apache/kafka:4.3.1
     container_name: kafka
     ports:
       - "9092:9092"
@@ -41,8 +59,18 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
     volumes:
       - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 12
 
 volumes:
   kafka_data:

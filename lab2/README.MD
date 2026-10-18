@@ -45,6 +45,8 @@ services:
 
 ## Часть 2 — Поднятие Kafka
 
+### Поднятие Kafka
+
 Настроим в [`docker-compose.yml`](./docker-compose.yml) сервис Kafka.
 
 > [!WARNING]
@@ -133,4 +135,143 @@ volumes:
 
 </details>
 
+### Декларативное объявление топиков Kafka
+
+> [!WARNING]
+> На этом моменте спотыкаемся: мы не можем просто взять и декларативно описать состояния топиков в compose!
+
+У существующий популярных решений (apache/kafka, confluentinc/cp-kafka, bitnami/kafka) это просто не реализовано, а в стороннем софте (типа wurstmeister/kafka) эта конфигурации происходит через ZooKeeper. Это не недостаток, а обоснованное решение, архитектурно необходимое для соблюдения принципа единой ответственности. Контроллер Kafka в режиме KRaft может быть не один.
+
+Но как же нам все-таки прийти к декларативному описанию? Попридумываем, потестируем и поищем решения этой архитектурной загадки.
+
+#### UI и CLI
+
+Оба способа рабочие, но это не по ТЗ, не описывается декларативно, а также делать руками - кринж.
+
+Вердикт: **КАТЕГОРИЧЕСКИ ОТКАЗАНО**, причина: _нет декларативности, не по заданию_.
+
+#### `KAFKA_*` переменные
+
+Задаем настройки по умолчанию для всех топиков. Например `KAFKA_NUM_PARTITIONS: 1`. Этот способ подходил бы, так как в лабе всего один топик, однако мы не можем так изменять уже существующие топики без сброса volume.
+
+Вердикт: **ОТКАЗАНО**, причина: _бесконечное стирание volume при смене конфигурации_.
+
+> [!WARNING]
+> Во время тестирования разных подходов была обнаружена следующая проблема: приложения хранили у себя информацию о топиках, оффсетах и партиция, но при изменении этих параметров в kafka не меняли их у себя и не могли работать. Были внесены соответствующие изменения - переодическое обновление метаданных.
+
+#### `kafka-init` контейнер
+
+Запускаем команды CLI сразу после запуска kafka в отдельном похожем контейнере.
+
+- Во-первых нет никакого сравнения желательного с действительным: при изменении любых настроек (а в процессе экспериментов ради интереса это случается часто) придется grep-ать и сравнивать результат в bash.
+- Во-вторых настройки не возращаются к дефолтным: если ты забыл вернуть настройку, сбрасывай контейнер или сиди ищи.
+- В итоге, этим способом мы просто упаковываем команды CLI в контейнер, это уже совсем не декларативный подход, хоть и внутри compose (не зашло).
+
+Вердикт: **ОТКАЗАНО**, причина: _нет декларативности_.
+
+#### `kafka-admin` сервис
+
+Пишем приложение, которое будет конфигурировать по AdminClient API.
+
+**Решением загадки** стало создание [`kafka-admin`](./kafka-admin/). Сервис был добавлен в [`docker-compose.yml`](./docker-compose.yml) вместе с порядком запуска. Для конфигурации используется [`kafka-topics`](./kafka-topics.yml) для приведения топиков в желаемое описанное состояние.
+
+```yml
+topics:
+    orders:
+        partitions: 1
+        config:
+```
+
+В [`kafka-admin/README.MD`](./kafka-admin/README.MD) можно посмотреть доступные параметры конфигурации топиков.
+
+<details>
+<summary>
+    Конфигурация compose для двух сервисов, kafka и kafka-admin
+</summary>
+
+```yml
+name: lab2
+
+services:
+    user-service:
+        build: ./user-service
+        container_name: user-service
+        environment:
+            KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+            KAFKA_TOPIC: "orders"
+            INSTANCE_NAME: "user-service-1"
+        ports:
+            - "8000:8000"
+        depends_on:
+            kafka-admin:
+                condition: service_completed_successfully
+
+    picker-service:
+        build: ./picker-service
+        container_name: picker-service
+        environment:
+            KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+            KAFKA_TOPIC: "orders"
+            KAFKA_GROUP_ID: "pickers"
+            INSTANCE_NAME: "picker-service-1"
+            PICK_SECONDS: "2"
+            AUTO_OFFSET_RESET: "earliest"
+        ports:
+            - "8001:8000"
+        depends_on:
+            kafka-admin:
+                condition: service_completed_successfully
+
+    kafka-admin:
+        build: ./kafka-admin
+        container_name: kafka-admin
+        environment:
+            KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+        volumes:
+            - ./kafka-topics.yml:/config/topics.yaml:ro
+        depends_on:
+            kafka:
+                condition: service_healthy
+        restart: "no"
+
+    kafka:
+        image: apache/kafka:4.3.1
+        container_name: kafka
+        ports:
+            - "9092:9092"
+        environment:
+            KAFKA_NODE_ID: 1
+            KAFKA_PROCESS_ROLES: "broker,controller"
+            KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092"
+            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+            KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+            KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+            KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+            KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+            KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+            KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+            KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+        volumes:
+            - kafka_data:/var/lib/kafka/data
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1",
+                ]
+            interval: 5s
+            timeout: 10s
+            retries: 12
+
+volumes:
+    kafka_data:
+```
+
+</details>
+
 ## Часть 3 — Бизнес-ситуации (решение через конфигурацию)
+
+### 1. Готовимся к распродаже, потом сворачиваемся
+
+Для управления топиками определим их количество в [`kafka-topics`](./kafka-topics.yml), N партиций дают использовать топик до N потребителям _параллельно_.
