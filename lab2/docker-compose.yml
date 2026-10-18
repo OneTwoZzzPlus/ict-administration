@@ -1,0 +1,168 @@
+name: lab2
+
+services:
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      INSTANCE_NAME: "user-service-1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  picker-service:
+    build: ./picker-service
+    container_name: picker-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-1"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8001:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  picker-service-2:
+    build: ./picker-service
+    container_name: picker-service-2
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-2"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8002:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  picker-service-3:
+    build: ./picker-service
+    container_name: picker-service-3
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-3"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8003:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      LOGGING_LEVEL_ROOT: WARN
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  kafka-admin:
+    build: ./kafka-admin
+    container_name: kafka-admin
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ./kafka-topics.yml:/config/topics.yaml:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 28800000
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: "WARN"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka:29092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2
+    container_name: grafana
+    environment:
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./monitoring/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alermanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alermanager/alertmanager.yml"
+
+  alert-webhook:
+    build: ./monitoring/webhook
+    container_name: alert-webhook
+
+volumes:
+  kafka_data:
+  prometheus-data:

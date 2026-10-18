@@ -1,0 +1,6 @@
+topics:
+    orders:
+        partitions: 3
+        config:
+            retention.ms: 172800000
+            segment.ms: 28800000
