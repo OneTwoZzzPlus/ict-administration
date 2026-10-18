@@ -119,5 +119,50 @@ services:
       timeout: 10s
       retries: 12
 
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka:29092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2
+    container_name: grafana
+    environment:
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./monitoring/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alermanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alermanager/alertmanager.yml"
+
+  alert-webhook:
+    build: ./monitoring/webhook
+    container_name: alert-webhook
+
 volumes:
   kafka_data:
+  prometheus-data:

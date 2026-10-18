@@ -1,0 +1,35 @@
+groups:
+    - name: lab3-kafka-alerts
+      rules:
+          - alert: KafkaDown # Потеряна связь с Kafka
+            expr: |
+                up{job="kafka"} == 0
+                or kafka_brokers < 1
+                or absent(kafka_brokers)
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "Kafka недоступна"
+                description: "Экспортёр не отвечает или не видит ни одного брокера."
+
+          - alert: NoPickersInGroup # Нет живых обработчиков
+            expr: |
+                kafka_consumergroup_members{consumergroup="pickers"} == 0
+                or absent(kafka_consumergroup_members{consumergroup="pickers"})
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "В группе pickers нет сборщиков"
+                description: "Заказы копятся в Kafka и не обрабатываются."
+
+          - alert: PickersLagHigh # Lag слишком большой
+            expr: |
+                kafka_consumergroup_lag_sum{consumergroup="pickers", topic="orders"} > 10
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Сборщики не успевают за заказами"
+                description: "Lag группы pickers по топику orders больше 10 дольше 2 минут."
