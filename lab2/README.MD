@@ -346,4 +346,88 @@ topics:
 - Перенос сломал бы гарантию порядка: порядок сообщений Kafka гарантируется только внутри одной партиции.
 - Сломались бы сохранённые offset'ы групп: непонятно, куда им указывать после слияния.
 
-### Добавляем второй сборщик
+### 2. Добавляем сборщиков
+
+#### Второй сборщик _(сборщиков не больше, чем партиций)_
+
+Оставляем рабочую структуру с двумя партициями. В [`docker-compose.yml`](./docker-compose.yml) добавляем второй сервис.
+
+```yml
+picker-service-2:
+    build: ./picker-service
+    container_name: picker-service-2
+    environment:
+        KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+        KAFKA_TOPIC: "orders"
+        KAFKA_GROUP_ID: "pickers"
+        INSTANCE_NAME: "picker-service-2"
+        PICK_SECONDS: "2"
+        AUTO_OFFSET_RESET: "earliest"
+    ports:
+        - "8002:8000"
+    depends_on:
+        kafka-admin:
+            condition: service_completed_successfully
+```
+
+Запускаем `docker compose up -d picker-service-2`.
+
+Отправляем 4 заказа (в партиции 0, 1)
+
+![user-service](./graphics/3-2-part2-pick2-user.png)
+
+В `picker-service-1` принимаем 2 заказа из партиции 0
+
+![picker-service-1](./graphics/3-2-part2-pick2-picker1.png)
+
+В `picker-service-2` принимаем 2 заказа из партиции 1
+
+![picker-service-2](./graphics/3-2-part2-pick2-picker2.png)
+
+#### Третий сборщик _(сборщиков больше, чем партиций)_
+
+Оставляем рабочую структуру с двумя партициями. В [`docker-compose.yml`](./docker-compose.yml) добавляем третий сервис.
+
+```yml
+picker-service-3:
+    build: ./picker-service
+    container_name: picker-service-3
+    environment:
+        KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+        KAFKA_TOPIC: "orders"
+        KAFKA_GROUP_ID: "pickers"
+        INSTANCE_NAME: "picker-service-3"
+        PICK_SECONDS: "2"
+        AUTO_OFFSET_RESET: "earliest"
+    ports:
+        - "8003:8000"
+    depends_on:
+        kafka-admin:
+            condition: service_completed_successfully
+```
+
+Запускаем `docker compose up -d picker-service-3`.
+
+Отправляем 6 заказов (в партиции 0, 1)
+
+![user-service](./graphics/3-2-part2-pick3-user.png)
+
+В `picker-service-1` принимаем 2 заказа из партиции 0
+
+![picker-service-1](./graphics/3-2-part2-pick3-picker1.png)
+
+В `picker-service-2` принимаем 4 заказа из партиции 1
+
+![picker-service-2](./graphics/3-2-part2-pick3-picker2.png)
+
+В `picker-service-3` партиций не назначено
+
+![picker-service-3](./graphics/3-2-part2-pick3-picker3.png)
+
+> [!NOTE]
+> Заказы распределились неравномерно, потому что они распределяются в топики не по очереди, а по хешу ключа.
+
+Третий сервис простаивает без дела. Почему?
+
+В Kafka одну партицию в рамках группы потребителей читает ровно один сборщик. Это гарантирует порядок сообщений внутри партиции: если бы двое читали одну
+партицию, они бы мешали друг другу и порядок пропал.

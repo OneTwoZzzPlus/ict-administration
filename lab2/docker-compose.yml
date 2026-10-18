@@ -30,6 +30,38 @@ services:
       kafka-admin:
         condition: service_completed_successfully
 
+  picker-service-2:
+    build: ./picker-service
+    container_name: picker-service-2
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-2"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8002:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
+  picker-service-3:
+    build: ./picker-service
+    container_name: picker-service-3
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "orders"
+      KAFKA_GROUP_ID: "pickers"
+      INSTANCE_NAME: "picker-service-3"
+      PICK_SECONDS: "2"
+      AUTO_OFFSET_RESET: "earliest"
+    ports:
+      - "8003:8000"
+    depends_on:
+      kafka-admin:
+        condition: service_completed_successfully
+
   kafka-admin:
     build: ./kafka-admin
     container_name: kafka-admin
