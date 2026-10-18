@@ -676,3 +676,33 @@ volumes:
 В picker-service убеждаемся, что заказ обработан.
 
 ### 5. Пересчёт истории для аналитики
+
+Остановим сервисы сборщиков.
+
+![stop pickers](./graphics/5-2-logs-stop.png)
+
+Зайдем на страницу управления consumers.
+
+![open consumers page](./graphics/5-2-ui-consumers-start.png)
+
+Сбросим offset'ы.
+
+![reset offsets page](./graphics/5-2-ui-reset.png)
+
+Зайдем на страницу управления топика orders и увидим огромный consumer lag.
+
+![open consumers page](./graphics/5-2-ui-consumers-reseted.png)
+
+Запустим сервисы сборщиков.
+
+![start pickers](./graphics/5-2-logs-start.png)
+
+Спустя время обработки на странице топика orders увидим consumer lag равный 0.
+
+![open consumers page](./graphics/5-2-ui-consumers-finished.png)
+
+В Kafka сообщения хранятся в append-only логе и живут, пока не истечёт retention. При сбросе offset'ов мы просто переводим указатель в начало лога. Сборщики начинают обрабатывать все заказы заново.
+
+В обычной очереди операция pop достает сообщение и удаляет его, поэтому перечитать их уже не получиться.
+
+### 6. Диск заполняется старыми заказами
