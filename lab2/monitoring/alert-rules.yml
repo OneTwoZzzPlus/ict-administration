@@ -15,8 +15,15 @@ groups:
 
           - alert: NoPickersInGroup # Нет живых обработчиков
             expr: |
-                kafka_consumergroup_members{consumergroup="pickers"} == 0
-                or absent(kafka_consumergroup_members{consumergroup="pickers"})
+                (
+                    kafka_consumergroup_members{consumergroup="pickers"} == 0
+                    or absent(kafka_consumergroup_members{consumergroup="pickers"})
+                )
+                unless on() (
+                    up{job="kafka"} == 0
+                    or kafka_brokers < 1
+                    or absent(kafka_brokers)
+                )
             for: 1m
             labels:
                 severity: critical

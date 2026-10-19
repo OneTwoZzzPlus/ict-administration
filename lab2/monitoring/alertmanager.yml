@@ -11,5 +11,5 @@ route:
 receivers:
     - name: default
       webhook_configs:
-          - url: "http://webhook:8080/alerts"
+          - url: "http://alert-webhook:8080/alerts"
             send_resolved: true
