@@ -8,15 +8,21 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+      # ASYNC
+      SYNC_STANDBY_NAMES: ""
+      SYNC_COMMIT: "on"
+      # SYNC
+      # SYNC_STANDBY_NAMES: "FIRST 1 (standby1)"
+      # SYNC_COMMIT: "remote_apply"
     volumes:
       - primary-data:/var/lib/postgresql
       - ./config/primary/postgresql.conf:/etc/primary/postgresql.conf
       - ./config/primary/pg_hba.conf:/etc/primary/pg_hba.conf
       - ./config/init:/docker-entrypoint-initdb.d
-    command: >
-      postgres
-        -c config_file=/etc/primary/postgresql.conf
-        -c hba_file=/etc/primary/pg_hba.conf
+    command:
+      - /bin/bash
+      - -c
+      - 'exec docker-entrypoint.sh postgres -c config_file=/etc/primary/postgresql.conf -c hba_file=/etc/primary/pg_hba.conf -c "synchronous_standby_names=$$SYNC_STANDBY_NAMES" -c "synchronous_commit=$$SYNC_COMMIT"'
     ports:
       - "5432:5432"
     healthcheck:
@@ -32,7 +38,9 @@ services:
     user: postgres
     environment:
       PRIMARY_HOST: pg-primary
+      STANDBY_NAME: standby1
       POSTGRES_PASSWORD: postgres
+      PGPASSWORD: replicator_password
     volumes:
       - standby-data:/var/lib/postgresql
       - ./config/replica/postgresql.conf:/etc/replica/postgresql.conf

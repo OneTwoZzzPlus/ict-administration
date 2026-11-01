@@ -1,5 +1,7 @@
 \c runtime_sentinel
 
+SET synchronous_commit = local;
+
 -- One row per monitored host
 CREATE TABLE hosts (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
