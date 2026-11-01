@@ -1,0 +1,193 @@
+{
+    "uid": "lab3-pg-replication",
+    "title": "PostgreSQL: репликация",
+    "tags": ["lab3", "postgres"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 4,
+    "editable": true,
+    "refresh": "5s",
+    "time": { "from": "now-15m", "to": "now" },
+    "templating": { "list": [] },
+    "annotations": { "list": [] },
+    "panels": [
+        {
+            "id": 1,
+            "type": "stat",
+            "title": "Доступность узлов",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "up{job=~\"postgres-.*\"}",
+                    "legendFormat": "{{job}} · экспортер"
+                },
+                {
+                    "refId": "B",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "pg_up{job=~\"postgres-.*\"}",
+                    "legendFormat": "{{job}} · БД"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "noValue": "НЕТ ДАННЫХ",
+                    "mappings": [
+                        {
+                            "type": "value",
+                            "options": {
+                                "0": {
+                                    "text": "DOWN",
+                                    "color": "red",
+                                    "index": 0
+                                },
+                                "1": {
+                                    "text": "UP",
+                                    "color": "green",
+                                    "index": 1
+                                }
+                            }
+                        }
+                    ]
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "orientation": "auto",
+                "textMode": "value_and_name",
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto"
+            }
+        },
+        {
+            "id": 2,
+            "type": "stat",
+            "title": "Состояние узлов",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "pg_replication_is_replica{job=~\"postgres-.*\"}",
+                    "legendFormat": "{{job}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "noValue": "НЕТ ДАННЫХ",
+                    "mappings": [
+                        {
+                            "type": "value",
+                            "options": {
+                                "0": {
+                                    "text": "primary",
+                                    "color": "green",
+                                    "index": 0
+                                },
+                                "1": {
+                                    "text": "standby",
+                                    "color": "blue",
+                                    "index": 1
+                                }
+                            }
+                        }
+                    ]
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "orientation": "auto",
+                "textMode": "value_and_name",
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto"
+            }
+        },
+        {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Отставание, байты WAL",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "max(pg_stat_replication_pg_wal_lsn_diff{job=\"postgres-primary\"})",
+                    "legendFormat": "отставание"
+                }
+            ],
+            "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+            "options": {
+                "legend": {
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "none" }
+            }
+        },
+        {
+            "id": 5,
+            "type": "timeseries",
+            "title": "Подключений к БД",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "sum by (job) (pg_stat_database_numbackends{datname=\"runtime_sentinel\"})",
+                    "legendFormat": "{{job}}"
+                }
+            ],
+            "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+            "options": {
+                "legend": {
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "none" }
+            }
+        },
+        {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Транзакций в секунду",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": { "type": "prometheus", "uid": "prometheus" },
+                    "expr": "sum by (job) (rate(pg_stat_database_xact_commit{datname=\"runtime_sentinel\"}[1m]))",
+                    "legendFormat": "commit · {{job}}"
+                }
+            ],
+            "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+            "options": {
+                "legend": {
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": { "mode": "multi", "sort": "none" }
+            }
+        }
+    ]
+}

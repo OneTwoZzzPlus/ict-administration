@@ -1,0 +1,126 @@
+name: lab3
+
+services:
+  pg-primary:
+    image: postgres:18.6
+    container_name: pg-primary
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      # ASYNC
+      SYNC_STANDBY_NAMES: ""
+      SYNC_COMMIT: "on"
+      # SYNC
+      # SYNC_STANDBY_NAMES: "FIRST 1 (standby1)"
+      # SYNC_COMMIT: "remote_apply"
+    volumes:
+      - primary-data:/var/lib/postgresql
+      - ./config/primary/postgresql.conf:/etc/primary/postgresql.conf
+      - ./config/primary/pg_hba.conf:/etc/primary/pg_hba.conf
+      - ./config/init:/docker-entrypoint-initdb.d
+    command:
+      - /bin/bash
+      - -c
+      - 'exec docker-entrypoint.sh postgres -c config_file=/etc/primary/postgresql.conf -c hba_file=/etc/primary/pg_hba.conf -c "synchronous_standby_names=$$SYNC_STANDBY_NAMES" -c "synchronous_commit=$$SYNC_COMMIT"'
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 0.0.0.0 -p 5432 -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  pg-standby:
+    image: postgres:18.6
+    container_name: pg-standby
+    user: postgres
+    environment:
+      PRIMARY_HOST: pg-primary
+      STANDBY_NAME: standby1
+      POSTGRES_PASSWORD: postgres
+      PGPASSWORD: replicator_password
+    volumes:
+      - standby-data:/var/lib/postgresql
+      - ./config/replica/postgresql.conf:/etc/replica/postgresql.conf
+      - ./config/replica/pg_hba.conf:/etc/replica/pg_hba.conf
+      - ./config/replica/replica-entrypoint.sh:/replica-entrypoint.sh
+    entrypoint: ["/bin/bash", "/replica-entrypoint.sh"]
+    ports:
+      - "5433:5432"
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+
+  service:
+    build: ./service
+    container_name: lab3-service
+    environment:
+      DB_WRITE_HOSTS: pg-primary,pg-standby
+      DB_READ_HOSTS: pg-standby,pg-primary
+    ports:
+      - "8000:8000"
+    depends_on:
+      - pg-primary
+      - pg-standby
+
+  pg-exporter-primary:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: pg-exporter-primary
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@pg-primary:5432/postgres?sslmode=disable&connect_timeout=2"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
+    volumes:
+      - ./monitoring/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      - pg-primary
+
+  pg-exporter-standby:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: pg-exporter-standby
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@pg-standby:5432/postgres?sslmode=disable&connect_timeout=2"
+    depends_on:
+      - pg-standby
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2
+    container_name: grafana
+    environment:
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./monitoring/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+
+  alert-webhook:
+    build: ./monitoring/webhook
+    container_name: alert-webhook
+
+volumes:
+  primary-data:
+  standby-data:
+  prometheus-data:

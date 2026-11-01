@@ -1,0 +1,26 @@
+global:
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    evaluation_interval: 5s
+
+alerting:
+    alertmanagers:
+        - static_configs:
+              - targets:
+                    - alertmanager:9093
+
+rule_files:
+    - /etc/prometheus/alert-rules.yml
+
+scrape_configs:
+    - job_name: postgres-primary
+      static_configs:
+          - targets: ["pg-exporter-primary:9187"]
+            labels:
+                node: pg-primary
+
+    - job_name: postgres-standby
+      static_configs:
+          - targets: ["pg-exporter-standby:9187"]
+            labels:
+                node: pg-standby

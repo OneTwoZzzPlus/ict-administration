@@ -1,0 +1,9 @@
+pg_replication:
+    query: "SELECT application_name, EXTRACT(EPOCH FROM replay_lag)::float AS replay_lag_seconds FROM pg_stat_replication"
+    metrics:
+        - application_name:
+              usage: "LABEL"
+              description: "имя standby"
+        - replay_lag_seconds:
+              usage: "GAUGE"
+              description: "replay lag в секундах"
