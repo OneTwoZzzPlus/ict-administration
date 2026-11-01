@@ -65,6 +65,62 @@ services:
       - pg-primary
       - pg-standby
 
+  pg-exporter-primary:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: pg-exporter-primary
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@pg-primary:5432/postgres?sslmode=disable&connect_timeout=2"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
+    volumes:
+      - ./monitoring/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      - pg-primary
+
+  pg-exporter-standby:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: pg-exporter-standby
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@pg-standby:5432/postgres?sslmode=disable&connect_timeout=2"
+    depends_on:
+      - pg-standby
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2
+    container_name: grafana
+    environment:
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./monitoring/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+
+  alert-webhook:
+    build: ./monitoring/webhook
+    container_name: alert-webhook
+
 volumes:
   primary-data:
   standby-data:
+  prometheus-data:
