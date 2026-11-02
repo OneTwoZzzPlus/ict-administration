@@ -1,0 +1,83 @@
+name: lab4
+
+services:
+  es-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.6
+    container_name: es-setup
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_ELASTICSEARCH_PASSWORD=${KIBANA_ELASTICSEARCH_PASSWORD}
+    user: "0"
+    command: ["bash", "/usr/local/bin/es-setup.sh"]
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - ./es-setup.sh:/usr/local/bin/es-setup.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+    restart: "no"
+
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.6
+    container_name: es01
+    depends_on:
+      es-setup:
+        condition: service_healthy
+    environment:
+      - node.name=es01
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+    ports:
+      - 9200:9200
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata01:/usr/share/elasticsearch/data
+    mem_limit: 4g
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:9.5.6
+    container_name: kibana
+    depends_on:
+      es-setup:
+        condition: service_completed_successfully
+      es01:
+        condition: service_healthy
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://es01:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_ELASTICSEARCH_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+    ports:
+      - 5601:5601
+    volumes:
+      - certs:/usr/share/kibana/config/certs:ro
+      - kibanadata:/usr/share/kibana/data
+    mem_limit: 4g
+
+volumes:
+  certs:
+  esdata01:
+  kibanadata:
