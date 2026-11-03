@@ -404,3 +404,45 @@ GET logs-test/_search
 ![Агрегация: число логов сервиса insight](./graphics/2-get-5.png)
 
 ### Визуализация в Kibana
+
+> [!NOTE]
+> Не совсем понял, как и куда тыкать, все-таки вижу интерфейс впервые. Поэтому все действия части в Kibana были по инструкции чатика.
+
+#### Создаем Data View
+
+Заходим в Menu → Stack Management → Data Views. Создаем Data View для logs-test.
+
+![Создаем Data View для logs-test](./graphics/2-kibana-data-view-create.png)
+
+Получаем Data View, который будем использовать дальше.
+
+![Созданный Data View для logs-test](./graphics/2-kibana-data-view-cat.png)
+
+#### Смотрим данные в Discover
+
+Заходим в Menu → Discover. Выбираем data view `logs-test`, промежуток времени. Видим, что данные отображаются.
+
+![Проверяем в Discover](./graphics/2-kibana-discover-all.png)
+
+Проверяем возможность фильтрации на примере `level : "ERROR"`.
+
+![Проверяем фильтрацию `level : "ERROR"` в Discover](./graphics/2-kibana-discover-error.png)
+
+#### Cтроим столбики по level
+
+Заходим в Menu → Visualize Library → Create visualization → Visualization.
+
+![Создаем визуализацию в Visualize Library](./graphics/2-kibana-vl-create.png)
+
+Сбрасываем столбик index в центр поля, получаем визуализацию.
+
+![Создаем визуализацию по уровням](./graphics/2-kibana-vl-levels.png)
+
+Сохраняем её как `Logs by level` в новый дашборд.
+
+![Получившийся дашборд](./graphics/2-kibana-dashboard.png)
+
+> [!NOTE]
+> Можно сказать, что `WARN` очень много, но судя по форматам запросов, все это - поисковые боты.
+
+## Часть 3 — Минимальный ILM + rollover
