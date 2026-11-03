@@ -219,7 +219,7 @@ volumes:
 
 ![Успешный запрос](./graphics/1-health.png)
 
-Статус `"green"` говорит о том, что все первичные шарды и реплики размещены и работают. Так как установлен режим `single-node`, эластик запускается в одном экземпляре с 0 реплик, а если реплицироваться никуда не нужно, значит, все в порядке.
+Статус `GREEN` говорит о том, что все первичные шарды и реплики размещены и работают. Так как установлен режим `single-node`, эластик запускается в одном экземпляре с 0 реплик, а если реплицироваться никуда не нужно, значит, все в порядке.
 
 ## Часть 2 — Данные, индекс и поиск
 
@@ -237,3 +237,60 @@ volumes:
 - `trace_id` генерируем случайный uuid.
 
 В итоге получился [`logs_bulk.ndjson`](./logs_bulk.ndjson) на `215549` записей.
+
+### Создание индекса
+
+Находим простую [инструкцию](https://www.elastic.co/docs/solutions/search/get-started/index-basics) по добавлению данных. Создадим простой индекс: 5 полей как в логах, без динамической индексации.
+
+```json
+PUT logs-test
+{
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "timestamp": { "type": "date" },
+      "level":     { "type": "keyword" },
+      "service":   { "type": "keyword" },
+      "message":   { "type": "text" },
+      "trace_id":  { "type": "keyword" }
+    }
+  }
+}
+```
+
+![Создание индекса logs-test](./graphics/2-create-index.png)
+
+> [!WARNING]
+> С первой попытки создать индекс не получилось, изначально придуманное имя `logs-app-test` подходило под встроенный шаблон для потока логов. Переименовал в `logs-test`.
+
+### Загрузка логов в индекс
+
+Загрузить 250 тысяч логов вручную? Заманчиво. Но, пожалуй, загрузим весь файл через Bulk API.
+
+Сначала достанем сертификат для взаимодействия c Эластиком.
+
+```bash
+docker cp es01:/usr/share/elasticsearch/config/certs/ca/ca.crt ./ca.crt
+```
+
+Загрузим переменную пароля от Эластика в сессию.
+
+```bash
+ELASTIC_PASSWORD=$(grep '^ELASTIC_PASSWORD=' .env | cut -d= -f2-)
+```
+
+Наконец, загрузим логи.
+
+```bash
+curl --cacert ca.crt -u elastic:$ELASTIC_PASSWORD \
+-H "Content-Type: application/x-ndjson" \
+-X POST https://localhost:9200/_bulk \
+--data-binary @logs_bulk.ndjson
+```
+
+Elasticsearch работает c `YELLOW`, потому что не может создать реплику созданного индекса, ведь имеется всего одна нода, а делать реплику на той же ноде нет смысла.
+
+![Статус индекса logs-test](./graphics/2-status-index.png)
+![Статус шардов logs-test](./graphics/2-status-shards.png)
+
+### Выполнение разнообразных запросов
