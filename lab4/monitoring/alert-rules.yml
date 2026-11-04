@@ -1,0 +1,47 @@
+groups:
+    - name: elasticsearch
+      rules:
+          - alert: ClusterHealthYellow
+            expr: sum(elasticsearch_cluster_health_status{color="yellow"}) == 1
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Кластер Elasticsearch в статусе YELLOW"
+                description: "Есть реплики, которые не размещены. Данные доступны, но без запаса на случай падения узла."
+
+          - alert: ClusterHealthRed
+            expr: sum(elasticsearch_cluster_health_status{color="red"}) == 1
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "Кластер Elasticsearch в статусе RED"
+                description: "Часть primary-шардов недоступна. Часть данных не читается и не записывается."
+
+          - alert: ClusterHealthDown
+            expr: up{job="elasticsearch"} == 0 or elasticsearch_cluster_health_up == 0
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "Elasticsearch или экспортер недоступны"
+                description: "Prometheus не может получить метрики кластера. Состояние неизвестно."
+
+          - alert: ElasticsearchHeapHigh
+            expr: 100 * sum(elasticsearch_jvm_memory_used_bytes{area="heap"}) / sum(elasticsearch_jvm_memory_max_bytes{area="heap"}) > 85
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "JVM heap выше 85%"
+                description: 'Использовано {{ $value | printf "%.1f" }}% heap. Растёт нагрузка на GC и риск отказов запросов.'
+
+          - alert: ElasticsearchDiskLow
+            expr: 100 * sum(elasticsearch_filesystem_data_available_bytes) / sum(elasticsearch_filesystem_data_size_bytes) < 15
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Свободного места на диске меньше 15%"
+                description: 'Свободно {{ $value | printf "%.1f" }}%. Elasticsearch скоро перестанет размещать новые шарды на узле.'
