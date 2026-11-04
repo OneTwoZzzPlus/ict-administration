@@ -58,11 +58,6 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:9.5.6
     container_name: kibana
-    depends_on:
-      es-setup:
-        condition: service_completed_successfully
-      es01:
-        condition: service_healthy
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=https://es01:9200
@@ -76,8 +71,66 @@ services:
       - certs:/usr/share/kibana/config/certs:ro
       - kibanadata:/usr/share/kibana/data
     mem_limit: 4g
+    depends_on:
+      es-setup:
+        condition: service_completed_successfully
+      es01:
+        condition: service_healthy
+
+  es-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.11.0
+    container_name: es-exporter
+    environment:
+      - ES_USERNAME=elastic
+      - ES_PASSWORD=${ELASTIC_PASSWORD}
+    ports:
+      - "9114:9114"
+    command:
+      - --es.uri=https://es01:9200
+      - --es.ca=/certs/ca/ca.crt
+      - --es.all
+      - --es.indices
+      - --es.shards
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      es01:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  grafana:
+    image: grafana/grafana:13.2
+    container_name: grafana
+    environment:
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/grafana-datasource.yml:ro
+      - ./monitoring/grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/grafana-dashboard.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
 
 volumes:
   certs:
   esdata01:
   kibanadata:
+  prometheus-data:

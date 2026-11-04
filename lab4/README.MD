@@ -9,7 +9,7 @@
 Найдем подходящие образы последней версии на [docker.elastic.co](https://www.docker.elastic.co/):
 
 - `docker.elastic.co/elasticsearch/elasticsearch:9.5.6`,
-- `docker.elastic.co/kibana/kibana-wolfi:9.5.6`.
+- `docker.elastic.co/kibana/kibana:9.5.6`.
 
 > [!NOTE]
 > Образы, конечно, большие: 916.7MB на Elasticsearch и 556.1MB на Kibana. Суммарно они заняли больше 5GB на диске. Меня это натолкнуло почистить и посмотреть images на машине. Prometheus стек во главе с Grafana весят столь же соизмеримо много. Интересно.
@@ -99,8 +99,8 @@ services:
             - kibanadata:/usr/share/kibana/data
         mem_limit: 4g
         depends_on:
-            es-setup:
-                condition: service_completed_successfully
+            es01:
+                condition: service_healtly
 
 volumes:
     esdata01:
@@ -118,7 +118,7 @@ volumes:
 
 Чтобы самому не мучаться с настройкой сертификатов и прав, вернемся к [документации](https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-docker-compose) и позаимствуем оттуда часть setup сервиса. Все-таки нам все ещё не нужен целый кластер.
 
-Поменяв всякие настроечки получаем [`docker-compose.yml`](./docker-compose.yml) и скрипт инициализации [`es-setup.sh`](./es-setup.sh), который создает сертификаты для Elasticsearch, ждет его включения и создает системного пользователя для Kibana.
+Поменяв всякие настроечки получаем [`docker-compose.yml`](./docker-compose.yml) и скрипт инициализации [`es-setup.sh`](./es-setup.sh), который создает сертификаты для Elasticsearch, ждет его включения и задает пароль системного пользователя для Kibana.
 
 <details>
 <summary>
@@ -215,11 +215,11 @@ volumes:
 
 ### Проверяем результат
 
-Откроем <http://localhost:5601/app/dev_tools#/console/shell>, исполним запрос `GET _cluster/health`: Elasticsearch работает c `GREEN`.
+Откроем <http://localhost:5601/app/dev_tools#/console/shell>, исполним запрос `GET _cluster/health`: Elasticsearch работает с `GREEN`.
 
 ![Успешный запрос](./graphics/1-health.png)
 
-Статус `GREEN` говорит о том, что все первичные шарды и реплики размещены и работают. Так как установлен режим `single-node`, эластик запускается в одном экземпляре с 0 реплик, а если реплицироваться никуда не нужно, значит, все в порядке.
+Статус `GREEN` говорит о том, что все первичные шарды и реплики размещены и работают. Так как установлен режим `single-node`, эластик запускается в одном экземпляре с системными индексами, которым реплики не нужны, а если реплицироваться никуда не нужно, значит, все в порядке.
 
 ## Часть 2 — Данные, индекс и поиск
 
@@ -227,7 +227,7 @@ volumes:
 
 > Настоящего приложения у нас нет, поэтому тестовые логи сгенерируй сам.
 
-А ведь у меня как раз есть [бекендик](https://reviews.work.gd/docs), который крутиться и активно отдает данные, я держу его как домашнего питомца на удаленном сервере. Заглянув в него, обнаружил логи за последние два месяца и сохранил их (`docker compose logs backend > backend.log`). Логирование там безобразное, разношерстное.
+А ведь у меня как раз есть [бекендик](https://reviews.work.gd/docs), который крутится и активно отдает данные, я держу его как домашнего питомца на удаленном сервере. Заглянув в него, обнаружил логи за последние два месяца и сохранил их (`docker compose logs backend > backend.log`). Логирование там безобразное, разношерстное.
 
 Для нужд лабораторной работы был произведен жесточайший вайб-скрипт, который cгенерировал по реальным грязным данным красивенькие.
 
@@ -265,9 +265,9 @@ PUT logs-test
 
 ### Загрузка логов в индекс
 
-Загрузить 250 тысяч логов вручную? Заманчиво. Но, пожалуй, загрузим весь файл через Bulk API.
+Загрузить 215 тысяч логов вручную? Заманчиво. Но, пожалуй, загрузим весь файл через Bulk API.
 
-Сначала достанем сертификат для взаимодействия c Эластиком.
+Сначала достанем сертификат для взаимодействия с Эластиком.
 
 ```bash
 docker cp es01:/usr/share/elasticsearch/config/certs/ca/ca.crt ./ca.crt
@@ -288,7 +288,16 @@ curl --cacert ca.crt -u elastic:$ELASTIC_PASSWORD \
 --data-binary @logs_bulk.ndjson
 ```
 
-Elasticsearch работает c `YELLOW`, потому что не может создать реплику созданного индекса, ведь имеется всего одна нода, а делать реплику на той же ноде нет смысла.
+Elasticsearch работает с `YELLOW`, потому что не может создать реплику созданного индекса, ведь имеется всего одна нода, а делать реплику на той же ноде нет смысла.
+
+Для исправления на `GREEN` зададим
+
+```json
+PUT logs-test/_settings
+{
+    "index": { "number_of_replicas": 0 }
+}
+```
 
 ![Статус индекса logs-test](./graphics/2-status-index.png)
 ![Статус шардов logs-test](./graphics/2-status-shards.png)
@@ -297,7 +306,7 @@ Elasticsearch работает c `YELLOW`, потому что не может �
 
 #### Полнотекстовый поиск по `message`
 
-Здесь `track_total_hits` заставляет Эластик считать точное количество вхождений, `size` указывает, что нужно вернуть только одно попадение (самое подходящее). Параметр `match` сообщает о неточном совпадении по полю.
+Здесь `track_total_hits` заставляет Эластик считать точное количество вхождений, `size` указывает, что нужно вернуть только одно попадание (самое подходящее). Параметр `match` сообщает о неточном совпадении по полю.
 
 ```json
 GET logs-test/_search
@@ -310,7 +319,7 @@ GET logs-test/_search
 }
 ```
 
-Было найдено 24 сообщения содержащих `Failed`. Все они связаны с ошибками сервиса инстайтов.
+Было найдено 24 сообщения содержащих `Failed`. Все они связаны с ошибками сервиса инсайтов.
 
 ![Полнотекстовый поиск по `message`](./graphics/2-get-1.png)
 
@@ -342,7 +351,7 @@ GET logs-test/_search
 }
 ```
 
-Было найдено 4 сообщения с ошибкой за 3 сентября. Все они связаны с ошибками сервиса инстайтов. Первый лог говорит об ошибке валидации, что нормально время от вермени получать по API текстовых GPT моделей.
+Было найдено 4 сообщения с ошибкой за 3 сентября. Все они связаны с ошибками сервиса инсайтов. Первый лог говорит об ошибке валидации, что нормально время от времени получать по API текстовых GPT моделей.
 
 ![Фильтр по `level = ERROR` и по временно́му диапазону](./graphics/2-get-2.png)
 
@@ -385,7 +394,7 @@ GET logs-test/_search
 
 #### Агрегация: число логов сервиса insight
 
-Аналогичный с предыдущим запрос, но арегируем как `"service": "insight"`.
+Аналогичный предыдущему запрос, но агрегируем как `"service": "insight"`.
 
 ```json
 GET logs-test/_search
@@ -428,13 +437,13 @@ GET logs-test/_search
 
 ![Проверяем фильтрацию `level : "ERROR"` в Discover](./graphics/2-kibana-discover-error.png)
 
-#### Cтроим столбики по level
+#### Строим столбики по level
 
 Заходим в Menu → Visualize Library → Create visualization → Visualization.
 
 ![Создаем визуализацию в Visualize Library](./graphics/2-kibana-vl-create.png)
 
-Сбрасываем столбик index в центр поля, получаем визуализацию.
+Перетащим столбик index в центр, получаем визуализацию.
 
 ![Создаем визуализацию по уровням](./graphics/2-kibana-vl-levels.png)
 
@@ -456,7 +465,7 @@ GET logs-test/_search
 - `hot` - активный, пока для `rollover` не насобирается 1000 документов или не пройдет 1 день;
 - `warm` - спустя 2 минуты после `rollover` ставим логи только для чтения, устанавливаем приоритет хранения, дополнительно отключаем миграции, так как имеем всего одну ноду;
 - `cold` - спустя 4 минуты после `rollover` снижаем приоритет хранения до 0;
-- `cold` - спустя 6 минут после `rollover` удаляем индекс.
+- `delete` - спустя 6 минут после `rollover` удаляем индекс.
 
 ```json
 PUT _ilm/policy/app-logs-policy
@@ -555,7 +564,7 @@ PUT _cluster/settings
 }
 ```
 
-Достанем сертификат для взаимодействия c Эластиком.
+Достанем сертификат для взаимодействия с Эластиком.
 
 ```bash
 docker cp es01:/usr/share/elasticsearch/config/certs/ca/ca.crt ./ca.crt
@@ -606,7 +615,7 @@ curl --cacert ca.crt -u elastic:$ELASTIC_PASSWORD \
 
 #### Загружаем второй чанк
 
-Пока пишем результаты в отчет, первый индекс переходит в стадию `cold`, так как в чанках по 1000 логов, то новый индекс создается после загрузки каждого чанка.
+Пока пишем результаты в отчет, первый индекс переходит в стадию `warm`, а затем и в `cold`. Так как в чанках по 1000 логов, то новый индекс создается после загрузки каждого чанка.
 
 ![После загрузки второго чанка](./graphics/3-2.png)
 
@@ -618,8 +627,110 @@ curl --cacert ca.crt -u elastic:$ELASTIC_PASSWORD \
 
 #### Спустя длительное время
 
-Немного подождав, снова посмотрим на состояние индексов, все они удалились согласно политике.
+Немного подождав, снова посмотрим на состояние индексов, все они, кроме текущего, удалились согласно политике.
 
 ![Спустя длительное время](./graphics/3-4.png)
 
 ## Часть 4 — Мониторинг
+
+> [!NOTE]
+> ELK используется для мониторинга, поэтому я поузнавал, насколько легко реализуемо это решение. В ранних версиях ELK есть встроенный мониторинг, однако он признан устаревшим. Вариант с отдельным `Metricbeat` хорош, но идея наблюдать состояние сервиса через сам сервис не кажется надежной. Поэтому я решил проводить наблюдение за сервисом вновь через Prometheus + Grafana.
+
+Настраиваем конфигурацию для мониторинга в [`docker-compose.yml`](./docker-compose.yml) и [`monitoring/`](./monitoring/). Для получения метрик используем экспортер образа `quay.io/prometheuscommunity/elasticsearch-exporter:v1.11.0`.
+
+### Метрики
+
+Выделим метрики, и отобразим их в дашборде, сохраним в [`monitoring/dashboards/main-dashboard.json`](./monitoring/dashboards/main-dashboard.json).
+
+1. Статус кластера
+    - Текущий статус кластера: `0=nodata`, `1=green`, `2=yellow`, `3=red`.
+    - `(sum(elasticsearch_cluster_health_status{color="green"}) * 1 + sum(elasticsearch_cluster_health_status{color="yellow"}) * 2 + sum(elasticsearch_cluster_health_status{color="red"}) * 3) or vector(-1)`
+
+2. Узлов в кластере
+    - Число живых узлов в кластере, в нашем случае для single-node это 0 или 1.
+    - `sum(elasticsearch_cluster_health_number_of_nodes)`
+
+3. Неразмещенных и активных шардов
+    - Статус репликации, чтобы быстро понимать причины yellow.
+    - `sum(elasticsearch_cluster_health_unassigned_shards)`
+    - `sum(elasticsearch_cluster_health_active_shards)`
+
+4. Свободное место на диске
+    - Состояние и запас хранилища
+    - `100 * sum(elasticsearch_filesystem_data_available_bytes) / sum(elasticsearch_filesystem_data_size_bytes)`
+
+5. Использование JVM heap
+    - Состояние и запас оперативки для выделенной под JVM
+    - `100 * sum(elasticsearch_jvm_memory_used_bytes{area="heap"}) / sum(elasticsearch_jvm_memory_max_bytes{area="heap"})`
+
+6. Загрузка CPU узла
+    - Запас по мощности CPU
+    - `sum(elasticsearch_os_cpu_percent)`
+
+7. Индексация (операций/с)
+    - Нагрузка по индексации
+    - `sum(rate(elasticsearch_indices_indexing_index_total[1m]))`
+
+8. Поиск (запросов/с)
+    - Нагрузка по поиску
+    - `sum(rate(elasticsearch_indices_search_query_total[1m]))`
+
+![Дашборд для Elastic](./graphics/4-grafana.png)
+
+### Алерты
+
+Опишем алерты в [`alert-rules.yml`](./monitoring/alert-rules.yml).
+
+- `ClusterHealthDown` (critical). Срабатывает, когда прометеус не видит экспортер или экспортер не видит узлов кластера. Либо упал узел, либо оборвалась связь. В любом случае мы буквально слепнем.
+- `ClusterHealthRed` (critical). Срабатывает, когда недоступна часть шардов. Сервисы физически не могут получить часть данных.
+- `ClusterHealthYellow` (warning). Срабатывает, когда не размещена хотя бы одна реплика. Если единственный шард без реплик упадет, доступ к данным будет утерян.
+- `ElasticsearchHeapHigh` (warning). Heap заполнен больше 85% - JVM начинает чаще запускать сборку мусора, это забирает CPU и увеличивает задержки. При почти полном заполнении Elasticsearch начинает отклонять запросы CircuitBreakingException. При полном заполнении возможен OutOfMemoryError и падение узла.
+- `ElasticsearchDiskLow` (warning). Хранилище занято больше 85% (low watermark) - узел перестаёт получать новые шарды. При 90% (high watermark) начинается перенос шардов с этого узла. При 95% (flood stage) индексы переводятся в режим только для чтения.
+
+![Алерты](./graphics/4-alerts.png)
+
+#### Вызовем `ClusterHealthYellow`
+
+Для этого поднимем необходимое число реплик на одном из индексов до 1.
+
+```json
+PUT logs-test/_settings
+{
+    "index": { "number_of_replicas": 1 }
+}
+```
+
+Через несколько секунд видим состояние на дашборде.
+
+![ClusterHealthYellow в Grafana](./graphics/4-yellow-grafana.png)
+
+Через 2 минуты видим алерт.
+
+![ClusterHealthYellow firing](./graphics/4-yellow-firing.png)
+
+#### Вызовем `ClusterHealthDown`
+
+Для этого остановим узел `docker pause es01`.
+
+Через несколько секунд видим состояние на дашборде.
+
+![ClusterHealthDown в Grafana](./graphics/4-down-grafana.png)
+
+Через минуту видим алерт.
+
+![ClusterHealthDown firing](./graphics/4-down-firing.png)
+
+## Выводы
+
+В ходе работы я впервые познакомился с ELK стеком. Стал четче понимать его цели, возможности и устройство работы. Попробовал по-разному развернуть Elasticsearch.
+
+Достал реальные логи приложения, загрузил и проанализировал их: узнал, что примерно 43% записей вероятнее всего от поисковых ботов (но все же радует, что живых запросов больше). Познакомился с форматом запросов Elasticsearch, попробовал визуализацию в Kibana.
+
+Написал политику ILM, создал для неё alias и index, прогнал через неё немного реальных логов, чтобы увидеть работу rollover вживую. Для мониторинга сделал внешний сервис, что оправдалось при падении кластера: алерт о падении пришел. Написал метрики и придумал алерты, вызвал пару из них.
+
+[![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://www.linux.org/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Elasticsearch](https://img.shields.io/badge/Elasticsearch-005571?style=for-the-badge&logo=elasticsearch&logoColor=white)](https://www.elastic.co/elasticsearch/)
+[![Kibana](https://img.shields.io/badge/Kibana-005571?style=for-the-badge&logo=kibana&logoColor=white)](https://www.elastic.co/kibana)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)](https://grafana.com/)

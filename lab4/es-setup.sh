@@ -35,8 +35,9 @@ fi
 
 echo "Setting file permissions"
 chown -R root:root config/certs
-find config/certs -type d -exec chmod 750 {} \;
+find config/certs -type d -exec chmod 755 {} \;
 find config/certs -type f -exec chmod 640 {} \;
+chmod 644 config/certs/ca/ca.crt
 
 echo "Waiting for Elasticsearch availability"
 until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do
