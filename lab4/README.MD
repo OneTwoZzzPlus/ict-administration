@@ -406,7 +406,7 @@ GET logs-test/_search
 ### Визуализация в Kibana
 
 > [!NOTE]
-> Не совсем понял, как и куда тыкать, все-таки вижу интерфейс впервые. Поэтому все действия части в Kibana были по инструкции чатика.
+> Не совсем понял, как и куда тыкать, все-таки вижу интерфейс впервые. Поэтому все действия части в вне консоли в Kibana были по инструкции чатика.
 
 #### Создаем Data View
 
@@ -446,3 +446,180 @@ GET logs-test/_search
 > Можно сказать, что `WARN` очень много, но судя по форматам запросов, все это - поисковые боты.
 
 ## Часть 3 — Минимальный ILM + rollover
+
+Для этой части выберем именование: для алиаса `app-logs`, для политики `app-logs-policy`. Индексы будут обозначаться как `app-logs-00000X`, их шаблон `app-logs-template`.
+
+### Создание ILM политики
+
+В созданной политике жизненный цикл логов для тестовой среды:
+
+- `hot` - активный, пока для `rollover` не насобирается 1000 документов или не пройдет 1 день;
+- `warm` - спустя 2 минуты после `rollover` ставим логи только для чтения, устанавливаем приоритет хранения, дополнительно отключаем миграции, так как имеем всего одну ноду;
+- `cold` - спустя 4 минуты после `rollover` снижаем приоритет хранения до 0;
+- `cold` - спустя 6 минут после `rollover` удаляем индекс.
+
+```json
+PUT _ilm/policy/app-logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": {
+            "max_age": "1d",
+            "max_docs": 1000
+          }
+        }
+      },
+      "warm": {
+        "min_age": "2m",
+        "actions": {
+          "migrate": { "enabled": false },
+          "set_priority": { "priority": 50 },
+          "readonly": {},
+          "forcemerge": { "max_num_segments": 1 }
+        }
+      },
+      "cold": {
+        "min_age": "4m",
+        "actions": {
+          "set_priority": { "priority": 0 }
+        }
+      },
+      "delete": {
+        "min_age": "6m",
+        "actions": { "delete": {} }
+      }
+    }
+  }
+}
+```
+
+![Принято](./graphics/3-acknowledged.png)
+
+Затем создаем шаблон индекса `app-logs-*`, привязываем к нему созданную политику, задаем alias `app-logs`.
+
+```json
+PUT _index_template/app-logs-template
+{
+  "index_patterns": ["app-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "app-logs-policy",
+      "index.lifecycle.rollover_alias": "app-logs"
+    },
+    "mappings": {
+      "properties": {
+        "timestamp": { "type": "date" },
+        "level":     { "type": "keyword" },
+        "service":   { "type": "keyword" },
+        "message":   { "type": "text" },
+        "trace_id":  { "type": "keyword" }
+      }
+    }
+  }
+}
+```
+
+![Принято](./graphics/3-acknowledged.png)
+
+Создаем первый индекс с alias, задаем на него флаг `is_write_index`.
+
+```json
+PUT app-logs-000001
+{
+  "aliases": {
+    "app-logs": { "is_write_index": true }
+  }
+}
+```
+
+![Принято](./graphics/3-first-index-create.png)
+
+Проверяем состояние `GET _alias/app-logs`.
+
+![Alias с первым индексом](./graphics/3-first-index-alias.png)
+
+### Наблюдение за работой ILM
+
+#### Подготовка
+
+По умолчанию проверка состояний индексов идет раз в 10 минут, сократим до 5 секунд.
+
+```json
+PUT _cluster/settings
+{
+  "persistent": { "indices.lifecycle.poll_interval": "5s" }
+}
+```
+
+Достанем сертификат для взаимодействия c Эластиком.
+
+```bash
+docker cp es01:/usr/share/elasticsearch/config/certs/ca/ca.crt ./ca.crt
+```
+
+Загрузим переменную пароля от Эластика в сессию.
+
+```bash
+ELASTIC_PASSWORD=$(grep '^ELASTIC_PASSWORD=' .env | cut -d= -f2-)
+```
+
+Достанем из [`logs_bulk.ndjson`](./logs_bulk.ndjson) **3 чанка по 1000 записей** (одна запись о логе занимает 2 строчки):
+
+```bash
+head -n 6000 logs_bulk.ndjson | split -l 2000 - log_chunks/chunk_
+```
+
+##### До загрузки
+
+Для просмотра текущего состояния будем использовать набор запросов:
+
+- состояния индексов;
+- состояние алиаса;
+- состояние политики.
+
+```txt
+GET _cat/indices/app-logs*?v
+GET _alias/app-logs
+GET app-logs-*/_ilm/explain?filter_path=indices.*.index,indices.*.managed,indices.*.phase,indices.*.action,indices.*.step
+```
+
+![До загрузки](./graphics/3-0.png)
+
+#### Загружаем первый чанк
+
+Загрузим первые 1000 записей.
+
+```bash
+curl --cacert ca.crt -u elastic:$ELASTIC_PASSWORD \
+-H "Content-Type: application/x-ndjson" \
+-X POST https://localhost:9200/_bulk \
+--data-binary @log_chunks/chunk_aa.ndjson
+```
+
+Флаг `is_write_index` перешел на следующий индекс, а первый помечен `completed`.
+
+![После загрузки первого чанка](./graphics/3-1.png)
+
+#### Загружаем второй чанк
+
+Пока пишем результаты в отчет, первый индекс переходит в стадию `cold`, так как в чанках по 1000 логов, то новый индекс создается после загрузки каждого чанка.
+
+![После загрузки второго чанка](./graphics/3-2.png)
+
+#### Загружаем третий чанк
+
+После загрузки третьего чанка дожидаемся, пока все четыре индекса перейдут в разные состояния. В какой-то момент первый индекс был с пометкой `deleted`, видимо в это время он удалялся, но затем он полностью пропал из ответов.
+
+![После загрузки третьего чанка](./graphics/3-3.png)
+
+#### Спустя длительное время
+
+Немного подождав, снова посмотрим на состояние индексов, все они удалились согласно политике.
+
+![Спустя длительное время](./graphics/3-4.png)
+
+## Часть 4 — Мониторинг
